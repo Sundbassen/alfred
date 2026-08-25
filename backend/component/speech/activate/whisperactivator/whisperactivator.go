@@ -1,4 +1,4 @@
-package activate
+package whisperactivator
 
 import (
 	"context"
@@ -28,7 +28,7 @@ type Config struct {
 	Logger     *slog.Logger  // Logger instance
 }
 
-func NewActivator(config Config) speech.Activator {
+func New(config Config) speech.Activator {
 	// Create a persistent Whisper context optimized for activation detection
 	ctx, err := config.Model.NewContext()
 	if err != nil {

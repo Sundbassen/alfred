@@ -1,0 +1,18 @@
+# --- Sensitive: user voice recordings ---
+backend/.recordings/
+
+# --- Models & training data (downloaded/generated, huge) ---
+backend/models/
+
+# --- Compiled Go binaries ---
+backend/alfred
+backend/reviewrecordings
+
+# --- Python training environment (trainwakeword/) ---
+trainwakeword/pythonvenv/
+__pycache__/
+*.pyc
+
+# --- Third-party generator clones (nested git repos) ---
+trainwakeword/piper-sample-generator/
+trainwakeword/piper-sample-generator-rhasspy/

@@ -109,9 +109,11 @@ func (s *sttService) Stop() error {
 	}
 
 	s.isRunning = false
-	close(s.audioChan)
-	close(s.transcriptChan)
 
+	// Channels are intentionally not closed: processAudioLoop may still be
+	// draining and sending on them (closing here caused a "send on closed
+	// channel" panic at shutdown). The loop exits via context cancellation
+	// and the channels are reclaimed with the process.
 	s.logger.Info("Speech-to-text service stopped")
 	return nil
 }
@@ -137,127 +139,80 @@ func (s *sttService) TranscriptChannel() <-chan Transcript {
 	return s.transcriptChan
 }
 
-// processAudioLoop processes incoming audio chunks and produces transcripts
-// Uses a debounce pattern: accumulates speech and waits for silence before processing
+// processAudioLoop processes incoming audio chunks and produces transcripts.
+// Uses a debounce pattern: the utteranceAssembler accumulates speech (with
+// pre-roll context) and emits a complete utterance once a silence gap
+// follows it; each utterance is handed to the activator.
 func (s *sttService) processAudioLoop(ctx context.Context) {
-	var audioBuffer []byte
-	var silenceCounter int
-	const minSpeechDuration = 16000 * 2 * 1 // 1 second minimum (16kHz * 2 bytes * 1 sec)
-
-	// Calculate how many chunks equal the silence duration
 	// Assuming each chunk is ~30ms (480 samples at 16kHz)
-	chunkDurationMs := 30 // Adjust based on your microphone buffer size
-	silenceChunksNeeded := s.silenceDuration / chunkDurationMs
+	const chunkDurationMs = 30 // Adjust based on your microphone buffer size
+
+	assembler := newUtteranceAssembler(assemblerConfig{
+		preRollChunks:     8, // ~240ms of context before speech onset
+		silenceGapChunks:  s.silenceDuration / chunkDurationMs,
+		minUtteranceBytes: s.sampleRate * 2 * 1,  // 1 second minimum
+		maxUtteranceBytes: s.sampleRate * 2 * 10, // force processing after 10 seconds without a silence gap
+	})
 
 	for {
 		select {
 		case <-ctx.Done():
-			// Process any remaining audio before exiting
-			if len(audioBuffer) >= minSpeechDuration {
-				result, err := s.speechProcessor.Process(ctx, audioBuffer)
-				if err != nil {
-					s.logger.Error("Failed to process remaining audio", slog.Any("error", err))
-				} else {
-					transcript := Transcript{
-						Text:       string(result.Text),
-						Confidence: float64(result.Confidence),
-						IsFinal:    true,
-					}
-					select {
-					case s.transcriptChan <- transcript:
-					default:
-					}
-				}
-			}
+			s.drainPending(ctx, assembler)
 			return
 
 		case audioData, ok := <-s.audioChan:
 			if !ok {
-				// Process any remaining audio before exiting
-				if len(audioBuffer) >= minSpeechDuration {
-					result, err := s.speechProcessor.Process(ctx, audioBuffer)
-					if err != nil {
-						s.logger.Error("Failed to process remaining audio", slog.Any("error", err))
-					} else {
-						transcript := Transcript{
-							Text:       string(result.Text),
-							Confidence: float64(result.Confidence),
-							IsFinal:    true,
-						}
-						select {
-						case s.transcriptChan <- transcript:
-						default:
-						}
-					}
-				}
+				s.drainPending(ctx, assembler)
 				return
 			}
 
-			// Check if this chunk is silence
 			isSilent := s.silenceDetector.IsSilent(ctx, audioData)
 
-			// Debug logging to track silence detection
-			s.logger.Debug("Audio chunk analysis",
-				slog.Bool("is_silent", isSilent),
-				slog.Int("silence_counter", silenceCounter),
-				slog.Int("buffer_size", len(audioBuffer)),
-				slog.Int("silence_needed", silenceChunksNeeded),
-			)
+			utterance, reason := assembler.Add(audioData, isSilent)
+			if reason == flushNone {
+				continue
+			}
 
-			if isSilent {
-				silenceCounter++
+			if reason == flushMaxDuration {
+				// Safety valve: if no silence gap arrives (e.g. the silence
+				// threshold sits below the ambient noise floor), process the
+				// buffer anyway instead of accumulating it forever in silence.
+				s.logger.Warn("No silence gap detected for 10s, forcing activation check; " +
+					"the silence threshold is likely below the ambient noise level")
+			}
 
-				// If we've been silent long enough and have speech buffered
-				if silenceCounter >= silenceChunksNeeded && len(audioBuffer) >= minSpeechDuration {
-					// Send accumulated audio buffer to activator for activation checking
-					activated, err := s.speechProcessor.Activate(ctx, audioBuffer)
-					if err != nil {
-						s.logger.Error("Activation check failed", slog.Any("error", err))
-						// Don't return - continue processing
-					} else if activated {
-						s.logger.Info("System activated by speech processor")
-					}
-
-					// Process the accumulated speech
-					// s.logger.Info("Processing speech segment",
-					// 	slog.Int("buffer_bytes", len(audioBuffer)),
-					// 	slog.Float64("duration_seconds", float64(len(audioBuffer))/(float64(s.sampleRate)*2.0)))
-
-					// result, err := s.speechProcessor.Process(ctx, audioBuffer)
-					// if err != nil {
-					// 	s.logger.Error("Failed to process speech segment", slog.Any("error", err))
-					// } else {
-					// 	transcript := Transcript{
-					// 		Text:       string(result.Text),
-					// 		Confidence: float64(result.Confidence),
-					// 		IsFinal:    true,
-					// 	}
-
-					// 	select {
-					// 	case s.transcriptChan <- transcript:
-					// 		s.logger.Info("Transcript sent", slog.String("text", transcript.Text))
-					// 	case <-ctx.Done():
-					// 		return
-					// 	default:
-					// 		// Transcript channel full, skip
-					// 		s.logger.Warn("Transcript channel full, dropping transcript")
-					// 	}
-					// }
-
-					// Reset for next speech segment
-					audioBuffer = nil
-					silenceCounter = 0
-				}
-			} else {
-				// Speech detected - reset silence counter and accumulate
-				if silenceCounter > 0 {
-					s.logger.Debug("Speech detected, resetting silence counter",
-						slog.Int("previous_silence_count", silenceCounter),
-					)
-				}
-				silenceCounter = 0
-				audioBuffer = append(audioBuffer, audioData...)
+			activated, err := s.speechProcessor.Activate(ctx, utterance)
+			if err != nil {
+				s.logger.Error("Activation check failed", slog.Any("error", err))
+				// Don't return - continue processing
+			} else if activated {
+				s.logger.Info("System activated by speech processor")
 			}
 		}
+	}
+}
+
+// drainPending processes any incomplete utterance left in the assembler at
+// shutdown and emits its transcript.
+func (s *sttService) drainPending(ctx context.Context, assembler *utteranceAssembler) {
+	pending := assembler.Pending()
+	if len(pending) < s.sampleRate*2 {
+		return
+	}
+
+	result, err := s.speechProcessor.Process(ctx, pending)
+	if err != nil {
+		s.logger.Error("Failed to process remaining audio", slog.Any("error", err))
+		return
+	}
+
+	transcript := Transcript{
+		Text:       string(result.Text),
+		Confidence: float64(result.Confidence),
+		IsFinal:    true,
+	}
+	select {
+	case s.transcriptChan <- transcript:
+	default:
 	}
 }

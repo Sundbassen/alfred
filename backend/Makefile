@@ -1,4 +1,4 @@
-.PHONY: build all install clean prereqs run review replay wakestats test vet
+.PHONY: build all install clean prereqs run review replay wakestats test vet layers
 
 # Native dependencies live in a project-local, gitignored directory (not
 # /tmp, which is wiped on reboot). Override with make install DEPS_DIR=...
@@ -109,6 +109,17 @@ test:
 
 vet:
 	go vet ./...
+
+# Enforce the layer rule (.claude/rules/project-patterns.md): cmd may import
+# anything, skills/ may import internal/, internal/ may import only
+# internal/. Checks direct imports, test files included.
+LAYER_IMPORTS = {{.ImportPath}}: {{join .Imports " "}} {{join .TestImports " "}} {{join .XTestImports " "}}
+layers:
+	@bad=$$(go list -f '$(LAYER_IMPORTS)' ./internal/... | grep -E ' github.com/sundbassen/alfred/(skills|cmd)(/| |$$)'); \
+	if [ -n "$$bad" ]; then echo "internal/ must not import skills/ or cmd/:"; echo "$$bad"; exit 1; fi
+	@bad=$$(go list -f '$(LAYER_IMPORTS)' ./skills/... | grep -E ' github.com/sundbassen/alfred/cmd(/| |$$)'); \
+	if [ -n "$$bad" ]; then echo "skills/ must not import cmd/:"; echo "$$bad"; exit 1; fi
+	@echo "layers ok"
 
 # Clean build artifacts
 clean:

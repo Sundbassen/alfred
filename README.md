@@ -94,23 +94,20 @@ The measurement protocol is in [#3](https://github.com/Sundbassen/alfred/issues/
 
 ## Project layout
 
-`backend/internal/` is split by role:
+`backend/` has three layers: `cmd/` may import anything, `skills/` may import `internal/`, and `internal/` may import only `internal/` (`make layers` checks this). The full description is in [`.claude/rules/project-patterns.md`](.claude/rules/project-patterns.md).
 
-| Path | What's there |
+| Path (under `backend/`) | What's there |
 |---|---|
-| `voice/` | the voice framework: audio in → transcript, text → speech |
-| `voice/listener` | listening → command state machine, endpointing, lookback |
-| `voice/wakeword` | streaming openWakeWord port (melspectrogram → embedding → classifier) |
-| `voice/stt` | whisper.cpp transcription |
-| `voice/vad` | silence detection (adaptive RMS; `vad/silero`: Silero VAD) |
-| `voice/mic`, `voice/tts`, `voice/recorder` | microphone, spoken replies, saving audio |
-| `assistant/` | intents and the router: each intent is a Go type, `assistant.Handle[I]` registers its handler, middleware wraps them |
-| `assistant/match` | the local recognizer: matches transcripts against each intent's example phrases |
-| `commands/` | one package per command, each with a `Register(router, services...)`; `clock` is the first |
-| `app/` | wires voice, assistant and commands together; `app.Router()` is the one list of registered commands |
-| `platform/` | shared helpers: PCM/wav, ONNX Runtime, logging |
+| `cmd/alfred`, `cmd/replaywav`, … | the binaries; development tools are `replaywav`, `reviewrecordings`, `wakestats`, `micdebug` |
+| `cmd/internal/wiring` | the composition root: builds the providers and registers every skill (`skills.go`) |
+| `skills/<skill>` | what Alfred can do, one package per skill: intent types, handlers, `Register(router, deps...)`. `clock` is the first; providers for a skill go in `skills/<skill>/<skill>service` |
+| `internal/assistant` | intents and the router: each intent is a Go type, `assistant.Handle[I]` registers its handler |
+| `internal/assistant/match` | the local recognizer: matches transcripts against each intent's example phrases |
+| `internal/app` | wires the voice framework and answers transcripts (`Assistant`) |
+| `internal/voice` | the voice framework: `listener` (wake word → command), `wakeword`, `stt` (whisper.cpp), `vad`, `mic`, `tts`, `recorder` |
+| `internal/platform` | shared helpers: `fault` (error categories), PCM/wav, ONNX Runtime, logging |
 
-Development tools live in `backend/cmd/` (`replaywav`, `reviewrecordings`, `wakestats`, `micdebug`); training is in `trainwakeword/`.
+Wake word training is in `trainwakeword/`.
 
 ## Privacy
 

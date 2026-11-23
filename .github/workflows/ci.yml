@@ -49,6 +49,9 @@ jobs:
 
       - run: make vet
 
+      # cmd -> anything, skills -> internal, internal -> internal only
+      - run: make layers
+
       # Tests that need downloaded models (wake word, Silero VAD) skip in CI.
       - run: make test
 

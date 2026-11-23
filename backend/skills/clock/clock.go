@@ -1,4 +1,4 @@
-// Package clock tells the time: the "time" intent.
+// Package clock is the clock skill: it tells the time (the "time" intent).
 package clock
 
 import (

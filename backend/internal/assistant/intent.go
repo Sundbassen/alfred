@@ -1,8 +1,9 @@
 // Package assistant routes intents (what the user wants) to the handlers
 // that carry them out. Recognizers (assistant/match today, an LLM fallback
 // later) decide which intent was meant; the Router dispatches it to the
-// handler registered for its concrete type. The handlers themselves live in
-// internal/commands and get their services injected at registration.
+// handler registered for its concrete type. The handlers themselves are
+// skills (backend/skills/<skill>), registered with their providers in
+// cmd/internal/wiring.
 package assistant
 
 import "context"

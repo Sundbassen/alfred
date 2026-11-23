@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/sundbassen/alfred/cmd/internal/wiring"
 	"github.com/sundbassen/alfred/internal/app"
 	"github.com/sundbassen/alfred/internal/assistant"
 	"github.com/sundbassen/alfred/internal/assistant/match"
@@ -49,7 +50,12 @@ func main() {
 
 	// Create the speech pipeline: streaming wake word detection followed by
 	// command endpointing and transcription
-	asst := app.NewAssistant(app.Router())
+	router := assistant.NewRouter()
+	if err := wiring.RegisterSkills(router); err != nil {
+		logger.Error("Failed to set up skills", slog.Any("error", err))
+		os.Exit(1)
+	}
+	asst := app.NewAssistant(router)
 	sttService, cleanup, err := app.New(
 		app.Options{
 			VAD:               *vad,

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/gen2brain/malgo"
+	"github.com/sundbassen/alfred/internal/platform/fault"
 	"gitlab.com/tozd/go/errors"
 )
 
@@ -52,7 +53,7 @@ func DefaultConfig() Config {
 func NewMicService(config Config, logger *slog.Logger) (MicrophoneService, error) {
 	ctx, err := malgo.InitContext(nil, malgo.ContextConfig{}, nil)
 	if err != nil {
-		return nil, errors.Errorf("failed to initialize malgo context: %w", err)
+		return nil, errors.WithMessage(err, "initialize malgo context")
 	}
 
 	deviceConfig := malgo.DefaultDeviceConfig(malgo.Duplex)
@@ -75,7 +76,7 @@ func NewMicService(config Config, logger *slog.Logger) (MicrophoneService, error
 // Start begins capturing audio from the microphone
 func (m *micService) Start(ctx context.Context) error {
 	if m.isRunning {
-		return errors.Errorf("microphone service is already running")
+		return errors.WithMessage(fault.ErrBadState, "microphone service is already running")
 	}
 
 	var captureCallbacks malgo.DeviceCallbacks
@@ -95,14 +96,14 @@ func (m *micService) Start(ctx context.Context) error {
 
 	device, err := malgo.InitDevice(m.context.Context, m.deviceConfig, captureCallbacks)
 	if err != nil {
-		return errors.Errorf("failed to initialize device: %w", err)
+		return errors.WithMessage(err, "initialize device")
 	}
 
 	m.device = device
 
 	if err := m.device.Start(); err != nil {
 		m.device.Uninit()
-		return errors.Errorf("failed to start device: %w", err)
+		return errors.WithMessage(err, "start device")
 	}
 
 	m.isRunning = true

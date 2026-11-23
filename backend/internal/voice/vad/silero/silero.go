@@ -8,6 +8,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/sundbassen/alfred/internal/platform/fault"
 	"github.com/sundbassen/alfred/internal/platform/onnxrt"
 	"github.com/sundbassen/alfred/internal/platform/pcm"
 	"github.com/sundbassen/alfred/internal/voice"
@@ -59,16 +60,16 @@ type detector struct {
 
 func New(config Config) (voice.SilenceDetector, error) {
 	if config.SampleRate != supportedRate {
-		return nil, errors.Errorf("silero VAD supports %d Hz, got %d", supportedRate, config.SampleRate)
+		return nil, errors.WithMessagef(fault.ErrInvalidValue, "silero VAD supports %d Hz, got %d", supportedRate, config.SampleRate)
 	}
 	if err := onnxrt.Init(config.OnnxRuntimeLibPath); err != nil {
-		return nil, errors.Errorf("initialize ONNX runtime (%s): %w", config.OnnxRuntimeLibPath, err)
+		return nil, errors.WithMessagef(err, "initialize ONNX runtime (%s)", config.OnnxRuntimeLibPath)
 	}
 
 	session, err := ort.NewDynamicAdvancedSession(config.ModelPath,
 		[]string{"input", "state", "sr"}, []string{"output", "stateN"}, nil)
 	if err != nil {
-		return nil, errors.Errorf("load silero VAD model: %w", err)
+		return nil, errors.WithMessage(err, "load silero VAD model")
 	}
 
 	sr, err := ort.NewScalar(int64(supportedRate))

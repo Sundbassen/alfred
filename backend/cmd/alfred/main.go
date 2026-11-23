@@ -11,6 +11,7 @@ import (
 	"github.com/sundbassen/alfred/internal/app"
 	"github.com/sundbassen/alfred/internal/assistant"
 	"github.com/sundbassen/alfred/internal/assistant/match"
+	"github.com/sundbassen/alfred/internal/platform/fault"
 	"github.com/sundbassen/alfred/internal/platform/logging"
 	"github.com/sundbassen/alfred/internal/voice/mic"
 	"github.com/sundbassen/alfred/internal/voice/tts"
@@ -156,7 +157,7 @@ func newSpeaker(engine string, logger *slog.Logger) (tts.Speaker, error) {
 	case "none":
 		return tts.NewLogSpeaker(logger), nil
 	default:
-		return nil, errors.Errorf("unknown -tts %q (want espeak or none)", engine)
+		return nil, errors.WithMessagef(fault.ErrInvalidValue, "unknown -tts %q (want espeak or none)", engine)
 	}
 }
 

@@ -55,7 +55,7 @@ func New(dir string, sampleRate int, logger *slog.Logger) (*Recorder, error) {
 	}
 	for _, d := range []string{r.wakeDir, r.commandDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
-			return nil, errors.Errorf("create recordings directory: %w", err)
+			return nil, errors.WithMessage(err, "create recordings directory")
 		}
 	}
 	r.started = r.now()

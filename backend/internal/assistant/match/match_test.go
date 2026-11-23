@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/sundbassen/alfred/internal/assistant"
+	"github.com/sundbassen/alfred/internal/platform/fault"
 	"gitlab.com/tozd/go/errors"
 )
 
@@ -56,8 +57,8 @@ func TestRecognize(t *testing.T) {
 	for _, tt := range tests {
 		res, err := m.Recognize(tt.transcript)
 		if tt.wantName == "" {
-			if !errors.Is(err, ErrNoMatch) {
-				t.Errorf("Recognize(%q) = %+v, %v; want ErrNoMatch", tt.transcript, res, err)
+			if !errors.Is(err, fault.ErrNotFound) {
+				t.Errorf("Recognize(%q) = %+v, %v; want fault.ErrNotFound", tt.transcript, res, err)
 			}
 			continue
 		}

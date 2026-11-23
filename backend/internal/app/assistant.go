@@ -36,7 +36,7 @@ type Reply struct {
 
 // Respond recognizes the transcript's intent and runs its handler. It
 // returns either a reply or an error: a *match.NoMatchError (errors.Is
-// match.ErrNoMatch) when nothing matched (the cloud LLM fallback, #2,
+// fault.ErrNotFound) when nothing matched (the cloud LLM fallback, #2,
 // plugs in here), or the handler's error, wrapped with the intent name
 // (assistant.SpokenText says what to tell the user).
 func (a *Assistant) Respond(ctx context.Context, transcript string) (*Reply, error) {
@@ -51,7 +51,7 @@ func (a *Assistant) Respond(ctx context.Context, transcript string) (*Reply, err
 	}
 	resp, err := a.router.Dispatch(ctx, intent)
 	if err != nil {
-		return nil, errors.Errorf("%s: %w", res.Name, err)
+		return nil, errors.WithMessage(err, res.Name)
 	}
 	return &Reply{Text: resp.Text, Match: res}, nil
 }

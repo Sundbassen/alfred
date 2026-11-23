@@ -8,6 +8,7 @@ import (
 	"log/slog"
 
 	"github.com/ggerganov/whisper.cpp/bindings/go/pkg/whisper"
+	"github.com/sundbassen/alfred/internal/platform/fault"
 	"github.com/sundbassen/alfred/internal/platform/onnxrt"
 	"github.com/sundbassen/alfred/internal/voice"
 	"github.com/sundbassen/alfred/internal/voice/listener"
@@ -66,7 +67,7 @@ func New(opts Options, logger *slog.Logger) (listener.Service, func(), error) {
 
 	streaming := wakeword.NewStreaming(activatorConfig)
 	if streaming == nil {
-		return nil, nil, errors.Errorf("failed to create streaming wake word activator")
+		return nil, nil, errors.WithMessage(fault.ErrInternal, "create streaming wake word activator")
 	}
 
 	if !opts.Verbose {
@@ -74,7 +75,7 @@ func New(opts Options, logger *slog.Logger) (listener.Service, func(), error) {
 	}
 	model, err := whisper.New(whisperModel)
 	if err != nil {
-		return nil, nil, errors.Errorf("load whisper model %s: %w", whisperModel, err)
+		return nil, nil, errors.WithMessagef(err, "load whisper model %s", whisperModel)
 	}
 	cleanup := func() { model.Close() }
 
@@ -87,7 +88,7 @@ func New(opts Options, logger *slog.Logger) (listener.Service, func(), error) {
 	})
 	if processor == nil {
 		cleanup()
-		return nil, nil, errors.Errorf("failed to create whisper processor")
+		return nil, nil, errors.WithMessage(fault.ErrInternal, "create whisper processor")
 	}
 
 	config := listener.DefaultConfig(detector, processor, streaming)
@@ -142,6 +143,6 @@ func newSilenceDetector(kind string, logger *slog.Logger) (voice.SilenceDetector
 			Logger:             logger,
 		})
 	default:
-		return nil, errors.Errorf("unknown -vad %q (want rms or silero)", kind)
+		return nil, errors.WithMessagef(fault.ErrInvalidValue, "unknown -vad %q (want rms or silero)", kind)
 	}
 }

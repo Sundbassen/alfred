@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/sundbassen/alfred/internal/platform/fault"
 	"gitlab.com/tozd/go/errors"
 )
 
@@ -53,7 +54,7 @@ func Handle[I Intent](r *Router, spec Spec, h func(ctx context.Context, intent I
 		handler: HandlerFunc(func(ctx context.Context, intent Intent) (Response, error) {
 			v, ok := intent.(I)
 			if !ok {
-				return Response{}, errors.Errorf("assistant: intent %q: got %T, want %T", name, intent, zero)
+				return Response{}, errors.WithMessagef(fault.ErrUnexpectedType, "intent %q: got %T, want %T", name, intent, zero)
 			}
 			return h(ctx, v)
 		}),
@@ -81,7 +82,7 @@ func (r *Router) Intents() []Route {
 func (r *Router) New(name string) (Intent, error) {
 	rt, ok := r.routes[name]
 	if !ok {
-		return nil, errors.Errorf("%w: %q", ErrUnknownIntent, name)
+		return nil, errors.WithMessagef(fault.ErrNotFound, "intent %q", name)
 	}
 	return rt.newIntent(), nil
 }
@@ -91,7 +92,7 @@ func (r *Router) New(name string) (Intent, error) {
 func (r *Router) Dispatch(ctx context.Context, intent Intent) (Response, error) {
 	rt, ok := r.routes[intent.IntentName()]
 	if !ok {
-		return Response{}, errors.Errorf("%w: %q", ErrUnknownIntent, intent.IntentName())
+		return Response{}, errors.WithMessagef(fault.ErrNotFound, "intent %q", intent.IntentName())
 	}
 	h := rt.handler
 	for i := len(r.middleware) - 1; i >= 0; i-- {

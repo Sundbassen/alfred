@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"math/rand"
 
+	"github.com/sundbassen/alfred/internal/platform/fault"
 	"github.com/sundbassen/alfred/internal/platform/pcm"
 	"github.com/sundbassen/alfred/internal/voice"
 	"gitlab.com/tozd/go/errors"
@@ -99,7 +100,7 @@ func (a *streamingActivator) noiseFeatures() ([]float32, error) {
 		count++
 	}
 	if count < classifierSteps {
-		return nil, errors.Errorf("noise produced %d embeddings, need %d", count, classifierSteps)
+		return nil, errors.WithMessagef(fault.ErrInternal, "noise produced %d embeddings, need %d", count, classifierSteps)
 	}
 
 	emb, err := a.runEmbedding(batch, count)

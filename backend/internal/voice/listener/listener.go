@@ -7,6 +7,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/sundbassen/alfred/internal/platform/fault"
 	"github.com/sundbassen/alfred/internal/platform/pcm"
 	"github.com/sundbassen/alfred/internal/voice"
 	"gitlab.com/tozd/go/errors"
@@ -87,10 +88,10 @@ func DefaultConfig(silenceDetector voice.SilenceDetector, transcriber voice.Tran
 // New creates a new speech-to-text service instance
 func New(config Config, logger *slog.Logger) (Service, error) {
 	if config.Transcriber == nil {
-		return nil, errors.Errorf("transcriber is required")
+		return nil, errors.WithMessage(fault.ErrInvalidValue, "transcriber is required")
 	}
 	if config.WakeWord == nil {
-		return nil, errors.Errorf("wake word detector is required")
+		return nil, errors.WithMessage(fault.ErrInvalidValue, "wake word detector is required")
 	}
 	if config.SampleRate == 0 {
 		config.SampleRate = 16000
@@ -131,7 +132,7 @@ func New(config Config, logger *slog.Logger) (Service, error) {
 // Start begins processing audio data for transcription
 func (s *service) Start(ctx context.Context) error {
 	if s.isRunning {
-		return errors.Errorf("speech-to-text service is already running")
+		return errors.WithMessage(fault.ErrBadState, "listener is already running")
 	}
 
 	s.isRunning = true
@@ -162,7 +163,7 @@ func (s *service) Stop() error {
 // ProcessAudio accepts audio data chunks for transcription
 func (s *service) ProcessAudio(audioData []byte) error {
 	if !s.isRunning {
-		return errors.Errorf("service is not running")
+		return errors.WithMessage(fault.ErrBadState, "listener is not running")
 	}
 
 	select {
@@ -170,7 +171,7 @@ func (s *service) ProcessAudio(audioData []byte) error {
 		return nil
 	default:
 		s.logger.Warn("Audio buffer full, dropping frame")
-		return errors.Errorf("audio buffer full, dropping frame")
+		return errors.WithMessage(fault.ErrTemporary, "audio buffer full, dropping frame")
 	}
 }
 

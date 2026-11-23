@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"os"
 
+	"github.com/sundbassen/alfred/internal/platform/fault"
 	"gitlab.com/tozd/go/errors"
 )
 
@@ -57,7 +58,7 @@ func Read(path string, sampleRate int) ([]byte, error) {
 		return nil, err
 	}
 	if len(raw) < 12 || string(raw[0:4]) != "RIFF" || string(raw[8:12]) != "WAVE" {
-		return nil, errors.Errorf("%s: not a RIFF/WAVE file", path)
+		return nil, errors.WithMessagef(fault.ErrDecoding, "%s: not a RIFF/WAVE file", path)
 	}
 
 	var formatOK bool
@@ -69,23 +70,23 @@ func Read(path string, sampleRate int) ([]byte, error) {
 		switch id {
 		case "fmt ":
 			if len(body) < 16 {
-				return nil, errors.Errorf("%s: short fmt chunk", path)
+				return nil, errors.WithMessagef(fault.ErrDecoding, "%s: short fmt chunk", path)
 			}
 			channels := binary.LittleEndian.Uint16(body[2:4])
 			rate := binary.LittleEndian.Uint32(body[4:8])
 			bits := binary.LittleEndian.Uint16(body[14:16])
 			if channels != numChannels || int(rate) != sampleRate || bits != bitsPerSample {
-				return nil, errors.Errorf("%s: need %d Hz mono s16, got %d Hz, %d channels, %d bits",
+				return nil, errors.WithMessagef(fault.ErrInvalidValue, "%s: need %d Hz mono s16, got %d Hz, %d channels, %d bits",
 					path, sampleRate, rate, channels, bits)
 			}
 			formatOK = true
 		case "data":
 			if !formatOK {
-				return nil, errors.Errorf("%s: data chunk before fmt chunk", path)
+				return nil, errors.WithMessagef(fault.ErrDecoding, "%s: data chunk before fmt chunk", path)
 			}
 			return body, nil
 		}
 		off += 8 + size + size%2
 	}
-	return nil, errors.Errorf("%s: no data chunk", path)
+	return nil, errors.WithMessagef(fault.ErrDecoding, "%s: no data chunk", path)
 }

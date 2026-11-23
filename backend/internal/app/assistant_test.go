@@ -6,6 +6,7 @@ import (
 
 	"github.com/sundbassen/alfred/internal/assistant"
 	"github.com/sundbassen/alfred/internal/assistant/match"
+	"github.com/sundbassen/alfred/internal/platform/fault"
 	"gitlab.com/tozd/go/errors"
 )
 
@@ -32,7 +33,7 @@ func TestRespond(t *testing.T) {
 
 	reply, err = a.Respond(context.Background(), "tell me a joke")
 	var noMatch *match.NoMatchError
-	if reply != nil || !errors.Is(err, match.ErrNoMatch) || !errors.As(err, &noMatch) {
+	if reply != nil || !errors.Is(err, fault.ErrNotFound) || !errors.As(err, &noMatch) {
 		t.Errorf("Respond(joke) = %+v, %v; want nil and a *match.NoMatchError", reply, err)
 	}
 

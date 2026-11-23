@@ -1,4 +1,4 @@
-.PHONY: build all install clean prereqs run review replay wakestats test vet layers
+.PHONY: build all install clean prereqs run review replay wakestats test vet layers spotify-login
 
 # Native dependencies live in a project-local, gitignored directory (not
 # /tmp, which is wiped on reboot). Override with make install DEPS_DIR=...
@@ -95,6 +95,11 @@ run: build
 #   n = delete (damaged/unclear wake word, or private)
 review:
 	@go run ./cmd/reviewrecordings
+
+# Log Alfred in to Spotify once (needs ALFRED_SPOTIFY_CLIENT_ID); writes the
+# token the music skill refreshes from (see README "Music (Spotify)")
+spotify-login:
+	@go run ./cmd/spotify-login
 
 # Wake word detection and false-trigger rates per threshold, from reviewed
 # clips and listening time:  make wakestats [ATTEMPTS=40]

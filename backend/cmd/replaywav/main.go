@@ -50,7 +50,7 @@ func main() {
 	data = append(data, make([]byte, *tailMs*app.SampleRate/1000*2)...)
 
 	router := assistant.NewRouter()
-	if err := wiring.RegisterSkills(router); err != nil {
+	if err := wiring.RegisterSkills(router, wiring.ConfigFromEnv(), logger); err != nil {
 		logger.Error("Failed to set up skills", slog.Any("error", err))
 		os.Exit(1)
 	}

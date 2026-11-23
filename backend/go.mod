@@ -8,6 +8,7 @@ require (
 	github.com/peterbourgon/ff/v4 v4.0.0-beta.1
 	github.com/yalue/onnxruntime_go v1.31.0
 	gitlab.com/tozd/go/errors v0.10.0
+	golang.org/x/oauth2 v0.36.0
 )
 
 require github.com/pkg/errors v0.9.1 // indirect

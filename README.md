@@ -92,6 +92,24 @@ Reviewed clips feed back into training:
 
 The measurement protocol is in [#3](https://github.com/Sundbassen/alfred/issues/3).
 
+## Music (Spotify)
+
+The music skill plays Spotify on Alfred's own speaker: "play daft punk", "play a radio with daft punk and justice" (a shuffled mix of only those artists), "pause", "play" (resume), "next song", "go back".
+
+Alfred logs in **once** with your own Spotify app (OAuth Authorization Code with PKCE, as in Home Assistant and OpenVoiceOS) and controls playback through the Spotify Web API. It plays on a Spotify Connect receiver running on the same box.
+
+1. **Create a Spotify app** at [developer.spotify.com](https://developer.spotify.com/dashboard): select *Web API*, and add the redirect URI `http://127.0.0.1:8888/callback`. The app owner needs **Spotify Premium** (Development Mode rule since February 2026).
+2. **Configure Alfred:**
+   ```sh
+   export ALFRED_SPOTIFY_CLIENT_ID=<your app's client ID>
+   # optional: ALFRED_SPOTIFY_DEVICE (default "Alfred"), ALFRED_SPOTIFY_TOKEN_FILE (default ~/.config/alfred/spotify-token.json)
+   ```
+3. **Log in once:** `make spotify-login`, open the printed URL and approve. On a headless box, run it on a machine with a browser and copy the token file over.
+4. **Make the box a speaker:** run a Spotify Connect receiver named like `ALFRED_SPOTIFY_DEVICE`, e.g. [spotifyd](https://github.com/Spotifyd/spotifyd) (`pacman -S spotifyd`, `device_name = "Alfred"` in `~/.config/spotifyd/spotifyd.conf`). Any Connect receiver works (go-librespot, Spotify Soloist), since Alfred addresses it by name.
+5. `make run`, then say "hey alfred, play daft punk".
+
+Without `ALFRED_SPOTIFY_CLIENT_ID`, or without a login, Alfred runs without the music skill and logs why. Spotify removed its recommendations API for new apps, so a "radio" is a mix of the named artists, not a discovery station.
+
 ## Project layout
 
 `backend/` has three layers: `cmd/` may import anything, `skills/` may import `internal/`, and `internal/` may import only `internal/` (`make layers` checks this). The full description is in [`.claude/rules/project-patterns.md`](.claude/rules/project-patterns.md).

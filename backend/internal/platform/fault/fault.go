@@ -12,8 +12,6 @@
 package fault
 
 import (
-	"net/http"
-
 	"github.com/peterbourgon/ff/v4"
 	"gitlab.com/tozd/go/errors"
 )
@@ -41,40 +39,7 @@ var (
 	ErrServiceUnavailable = errors.Base("service unavailable")
 	// ErrInternal: a failure inside Alfred that callers cannot act on.
 	ErrInternal = errors.Base("internal")
-	// ErrUnauthorized: credentials for an external service are missing,
-	// expired or revoked (the user needs to log in again).
-	ErrUnauthorized = errors.Base("unauthorized")
-	// ErrPermission: the account may not do this (e.g. a feature that
-	// needs a paid subscription).
-	ErrPermission = errors.Base("forbidden")
-	// ErrRateLimited: an external service asks us to slow down.
-	ErrRateLimited = errors.Base("rate limited")
 
 	// ErrRequiredFlags: required command line flags are missing.
 	ErrRequiredFlags = errors.BaseWrap(ff.ErrHelp, "missing required flags")
 )
-
-// ErrorFromHTTPCode returns the category for an external service's HTTP
-// status code, nil for 2xx (as in the greenfield backend). Wrap the result
-// with the context: errors.WithMessagef(fault.ErrorFromHTTPCode(code), ...).
-func ErrorFromHTTPCode(code int) error {
-	switch {
-	case code >= 200 && code < 300:
-		return nil
-	case code == http.StatusUnauthorized:
-		return ErrUnauthorized
-	case code == http.StatusForbidden:
-		return ErrPermission
-	case code == http.StatusNotFound:
-		return ErrNotFound
-	case code == http.StatusRequestTimeout, code == http.StatusGatewayTimeout:
-		return ErrTimeout
-	case code == http.StatusTooManyRequests:
-		return ErrRateLimited
-	case code >= 500:
-		// An upstream server error is transient from our side.
-		return ErrTemporary
-	default:
-		return ErrInvalidValue
-	}
-}

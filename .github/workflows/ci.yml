@@ -30,7 +30,7 @@ jobs:
           echo "ort=$(sed -n 's/^ONNXRUNTIME_VERSION := //p' Makefile)" >> "$GITHUB_OUTPUT"
 
       - name: Cache whisper.cpp and ONNX Runtime
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             /tmp/whisper.cpp

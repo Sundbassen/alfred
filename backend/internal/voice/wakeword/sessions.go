@@ -1,10 +1,9 @@
 package wakeword
 
 import (
-	"fmt"
-
 	"github.com/sundbassen/alfred/internal/platform/onnxrt"
 	ort "github.com/yalue/onnxruntime_go"
+	"gitlab.com/tozd/go/errors"
 )
 
 // The openWakeWord pipeline runs three models in sequence:
@@ -28,20 +27,20 @@ type sessions struct {
 
 func loadSessions(config Config) (*sessions, error) {
 	if err := onnxrt.Init(config.OnnxRuntimeLibPath); err != nil {
-		return nil, fmt.Errorf("initialize ONNX runtime (%s): %w", config.OnnxRuntimeLibPath, err)
+		return nil, errors.WithMessagef(err, "initialize ONNX runtime (%s)", config.OnnxRuntimeLibPath)
 	}
 
 	melspec, err := ort.NewDynamicAdvancedSession(
 		config.MelspecModelPath, []string{"input"}, []string{"output"}, nil)
 	if err != nil {
-		return nil, fmt.Errorf("load melspectrogram model: %w", err)
+		return nil, errors.WithMessage(err, "load melspectrogram model")
 	}
 
 	embedding, err := ort.NewDynamicAdvancedSession(
 		config.EmbeddingModelPath, []string{"input_1"}, []string{"conv2d_19"}, nil)
 	if err != nil {
 		melspec.Destroy()
-		return nil, fmt.Errorf("load embedding model: %w", err)
+		return nil, errors.WithMessage(err, "load embedding model")
 	}
 
 	classifier, err := ort.NewDynamicAdvancedSession(
@@ -49,7 +48,7 @@ func loadSessions(config Config) (*sessions, error) {
 	if err != nil {
 		melspec.Destroy()
 		embedding.Destroy()
-		return nil, fmt.Errorf("load wake word model: %w", err)
+		return nil, errors.WithMessage(err, "load wake word model")
 	}
 
 	return &sessions{melspec: melspec, embedding: embedding, classifier: classifier}, nil

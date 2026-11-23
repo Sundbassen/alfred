@@ -3,35 +3,33 @@
 package match
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 	"unicode"
 
 	"github.com/sundbassen/alfred/internal/assistant"
+	"github.com/sundbassen/alfred/internal/platform/fault"
+	"gitlab.com/tozd/go/errors"
 )
 
 // DefaultThreshold is the minimum score for Recognize to report a match.
 const DefaultThreshold = 0.75
 
-// ErrNoMatch is matched (errors.Is) by every *NoMatchError.
-var ErrNoMatch = errors.New("no intent matched")
-
 // NoMatchError is returned by Recognize when no phrase scores at least the
 // threshold. Best is the closest candidate (zero if there was none), for
-// logging near misses.
+// logging near misses. It is a fault.ErrNotFound (errors.Is).
 type NoMatchError struct {
 	Best Result
 }
 
 func (e *NoMatchError) Error() string {
 	if e.Best.Name == "" {
-		return ErrNoMatch.Error()
+		return "no intent matched"
 	}
-	return fmt.Sprintf("%s (best: %s %.2f)", ErrNoMatch, e.Best.Name, e.Best.Score)
+	return fmt.Sprintf("no intent matched (best: %s %.2f)", e.Best.Name, e.Best.Score)
 }
 
-func (e *NoMatchError) Is(target error) bool { return target == ErrNoMatch }
+func (e *NoMatchError) Unwrap() error { return fault.ErrNotFound }
 
 // Result is the best phrase match for a transcript.
 type Result struct {
@@ -123,7 +121,7 @@ func (m *Matcher) Recognize(transcript string) (Result, error) {
 	normalized := normalize(transcript)
 	tokens := strings.Fields(normalized)
 	if len(tokens) == 0 {
-		return Result{}, &NoMatchError{}
+		return Result{}, errors.WithStack(&NoMatchError{})
 	}
 
 	var best Result
@@ -139,7 +137,7 @@ func (m *Matcher) Recognize(transcript string) (Result, error) {
 		}
 	}
 	if best.Name == "" || best.Score < m.Threshold {
-		return Result{}, &NoMatchError{Best: best}
+		return Result{}, errors.WithStack(&NoMatchError{Best: best})
 	}
 	return best, nil
 }

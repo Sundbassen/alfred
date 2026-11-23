@@ -24,6 +24,7 @@ import (
 	"github.com/sundbassen/alfred/internal/platform/wav"
 	"github.com/sundbassen/alfred/internal/voice"
 	"github.com/sundbassen/alfred/internal/voice/listener"
+	"gitlab.com/tozd/go/errors"
 )
 
 const timeFormat = "20060102-150405.000"
@@ -54,7 +55,7 @@ func New(dir string, sampleRate int, logger *slog.Logger) (*Recorder, error) {
 	}
 	for _, d := range []string{r.wakeDir, r.commandDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
-			return nil, fmt.Errorf("create recordings directory: %w", err)
+			return nil, errors.WithMessage(err, "create recordings directory")
 		}
 	}
 	r.started = r.now()

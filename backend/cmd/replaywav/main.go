@@ -11,7 +11,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -23,6 +22,7 @@ import (
 	"github.com/sundbassen/alfred/internal/assistant/match"
 	"github.com/sundbassen/alfred/internal/platform/logging"
 	"github.com/sundbassen/alfred/internal/platform/wav"
+	"gitlab.com/tozd/go/errors"
 )
 
 func main() {

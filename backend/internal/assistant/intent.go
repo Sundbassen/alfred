@@ -5,10 +5,7 @@
 // internal/commands and get their services injected at registration.
 package assistant
 
-import (
-	"context"
-	"errors"
-)
+import "context"
 
 // Intent is implemented by every concrete intent type, e.g.
 //
@@ -54,10 +51,6 @@ func (f HandlerFunc) Handle(ctx context.Context, intent Intent) (Response, error
 
 // Middleware wraps a Handler, e.g. for logging or error handling.
 type Middleware func(Handler) Handler
-
-// ErrUnknownIntent is returned by Router.Dispatch and Router.New for an
-// intent no handler is registered for.
-var ErrUnknownIntent = errors.New("unknown intent")
 
 // SpokenError is a failure the user should hear about, e.g. "I couldn't
 // find a room called attic". Handlers return it, wrapping the cause;

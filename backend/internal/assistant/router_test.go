@@ -2,10 +2,12 @@ package assistant
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"strings"
 	"testing"
+
+	"gitlab.com/tozd/go/errors"
+
+	"github.com/sundbassen/alfred/internal/platform/fault"
 )
 
 type askTime struct{}
@@ -52,15 +54,15 @@ func TestIntentsAndNew(t *testing.T) {
 	if _, ok := in.(turnOn); !ok || err != nil {
 		t.Errorf("New(lights_on) = %T, %v; want turnOn", in, err)
 	}
-	if _, err := r.New("weather"); !errors.Is(err, ErrUnknownIntent) {
-		t.Errorf("New(weather) error = %v, want ErrUnknownIntent", err)
+	if _, err := r.New("weather"); !errors.Is(err, fault.ErrNotFound) {
+		t.Errorf("New(weather) error = %v, want fault.ErrNotFound", err)
 	}
 }
 
 func TestDispatchUnknownIntent(t *testing.T) {
 	_, err := NewRouter().Dispatch(context.Background(), askTime{})
-	if !errors.Is(err, ErrUnknownIntent) {
-		t.Errorf("error = %v, want ErrUnknownIntent", err)
+	if !errors.Is(err, fault.ErrNotFound) {
+		t.Errorf("error = %v, want fault.ErrNotFound", err)
 	}
 }
 
@@ -108,7 +110,9 @@ func TestSpokenText(t *testing.T) {
 		want string
 	}{
 		{&SpokenError{Text: "I can't reach the lights", Err: cause}, "I can't reach the lights"},
-		{fmt.Errorf("lights_on: %w", &SpokenError{Text: "No room called attic"}), "No room called attic"},
+		{errors.Errorf("lights_on: %w", &SpokenError{Text: "No room called attic"}), "No room called attic"},
+		{errors.WithMessage(fault.ErrServiceUnavailable, "home assistant"), "Sorry, I can't reach that right now."},
+		{errors.WithMessage(fault.ErrNotFound, "room attic"), "Sorry, I couldn't find that."},
 		{cause, FailedText},
 	}
 	for _, tt := range tests {

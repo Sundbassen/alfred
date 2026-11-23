@@ -4,7 +4,6 @@ package stt
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -12,6 +11,7 @@ import (
 	"github.com/ggerganov/whisper.cpp/bindings/go/pkg/whisper"
 	"github.com/sundbassen/alfred/internal/platform/pcm"
 	"github.com/sundbassen/alfred/internal/voice"
+	"gitlab.com/tozd/go/errors"
 )
 
 type processor struct {
@@ -62,7 +62,7 @@ func (p *processor) newContext() (whisper.Context, error) {
 	// English-only (.en) models reject SetLanguage; they need none.
 	if lang := p.config.Language; ctx.IsMultilingual() && lang != "" && lang != "auto" {
 		if err := ctx.SetLanguage(lang); err != nil {
-			return nil, fmt.Errorf("set whisper language %q: %w", lang, err)
+			return nil, errors.WithMessagef(err, "set whisper language %q", lang)
 		}
 	}
 
@@ -92,12 +92,12 @@ func (p *processor) Transcribe(ctx context.Context, data []byte) (voice.Transcri
 
 	whisperContext, err := p.newContext()
 	if err != nil {
-		return voice.Transcript{}, fmt.Errorf("whisper context: %w", err)
+		return voice.Transcript{}, errors.WithMessage(err, "whisper context")
 	}
 
 	start := time.Now()
 	if err := whisperContext.Process(pcm.ToFloat32Normalized(data), nil, nil, nil); err != nil {
-		return voice.Transcript{}, fmt.Errorf("whisper process: %w", err)
+		return voice.Transcript{}, errors.WithMessage(err, "whisper process")
 	}
 
 	var text strings.Builder

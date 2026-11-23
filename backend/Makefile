@@ -12,10 +12,13 @@ GGML_INCLUDE := $(WHISPER_DIR)/ggml/include
 WHISPER_LIB := $(WHISPER_DIR)/build/bin
 GGML_LIB := $(WHISPER_DIR)/build/bin
 
-# ONNX Runtime paths (prebuilt release, loaded at runtime via dlopen)
+# ONNX Runtime (loaded at runtime via dlopen). The shared library is taken
+# from Microsoft's official PyPI wheel, pinned by version and sha256: the
+# GitHub release tarball URL used before returns 404.
 ONNXRUNTIME_VERSION := 1.26.0
 ONNXRUNTIME_DIR := /tmp/onnxruntime
-ONNXRUNTIME_URL := https://github.com/microsoft/onnxruntime/releases/download/v$(ONNXRUNTIME_VERSION)/onnxruntime-linux-x64-$(ONNXRUNTIME_VERSION).tgz
+ONNXRUNTIME_WHEEL_URL := https://files.pythonhosted.org/packages/7c/43/2a4e04f8dbeffad19bbcced4bcd4289bf478921518437404d6b92bdf213b/onnxruntime-1.26.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+ONNXRUNTIME_WHEEL_SHA256 := 9b6dd70599005bd1bf29779f04a91978b92b5e719c11a20068a8f8e535f725b6
 
 # CGO flags
 export CGO_CFLAGS := -I$(WHISPER_INCLUDE) -I$(GGML_INCLUDE)
@@ -50,10 +53,12 @@ install:
 	@echo "Setting up ONNX Runtime..."
 	@if [ ! -f "$(ONNXRUNTIME_DIR)/lib/libonnxruntime.so" ]; then \
 		echo "Downloading ONNX Runtime $(ONNXRUNTIME_VERSION)..."; \
-		curl -fL -o /tmp/onnxruntime.tgz "$(ONNXRUNTIME_URL)"; \
-		mkdir -p $(ONNXRUNTIME_DIR); \
-		tar -xzf /tmp/onnxruntime.tgz -C $(ONNXRUNTIME_DIR) --strip-components=1; \
-		rm /tmp/onnxruntime.tgz; \
+		mkdir -p $(ONNXRUNTIME_DIR)/lib && \
+		curl -fsSL -o $(ONNXRUNTIME_DIR)/onnxruntime.whl "$(ONNXRUNTIME_WHEEL_URL)" && \
+		echo "$(ONNXRUNTIME_WHEEL_SHA256)  $(ONNXRUNTIME_DIR)/onnxruntime.whl" | sha256sum -c - && \
+		unzip -p $(ONNXRUNTIME_DIR)/onnxruntime.whl 'onnxruntime/capi/libonnxruntime.so.$(ONNXRUNTIME_VERSION)' \
+			> $(ONNXRUNTIME_DIR)/lib/libonnxruntime.so && \
+		rm -f $(ONNXRUNTIME_DIR)/onnxruntime.whl || exit 1; \
 	else \
 		echo "ONNX Runtime already installed"; \
 	fi

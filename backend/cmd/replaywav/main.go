@@ -12,12 +12,14 @@ package main
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
 	"time"
 
+	"github.com/sundbassen/alfred/component/command"
 	"github.com/sundbassen/alfred/internal/logging"
 	"github.com/sundbassen/alfred/internal/pipeline"
 )
@@ -56,6 +58,7 @@ func main() {
 		os.Exit(1)
 	}
 
+	commands := pipeline.Commands()
 	transcripts := 0
 	done := make(chan struct{})
 	go func() {
@@ -63,6 +66,20 @@ func main() {
 		for transcript := range service.TranscriptChannel() {
 			transcripts++
 			fmt.Printf("TRANSCRIPT: %q (confidence %.2f)\n", transcript.Text, transcript.Confidence)
+
+			resp, match, err := commands.Handle(ctx, transcript.Text)
+			switch {
+			case errors.Is(err, command.ErrNoMatch):
+				if match.Command != nil {
+					fmt.Printf("NO MATCH (best: %s %.2f)\n", match.Command.ID(), match.Score)
+				} else {
+					fmt.Println("NO MATCH")
+				}
+			case err != nil:
+				fmt.Printf("COMMAND FAILED: %v\n", err)
+			default:
+				fmt.Printf("RESPONSE: [%s %.2f] %q\n", match.Command.ID(), match.Score, resp.Text)
+			}
 		}
 	}()
 

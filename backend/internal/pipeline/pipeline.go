@@ -8,6 +8,8 @@ import (
 	"log/slog"
 
 	"github.com/ggerganov/whisper.cpp/bindings/go/pkg/whisper"
+	"github.com/sundbassen/alfred/component/command"
+	"github.com/sundbassen/alfred/component/command/clock"
 	"github.com/sundbassen/alfred/component/debounce"
 	"github.com/sundbassen/alfred/component/debounce/silerovad"
 	"github.com/sundbassen/alfred/component/speech"
@@ -36,6 +38,14 @@ type Options struct {
 	Record bool
 	// VAD selects the silence detector: "rms" (adaptive RMS) or "silero".
 	VAD string
+}
+
+// Commands returns the registry of everything Alfred can do. Register new
+// commands here.
+func Commands() *command.Registry {
+	return command.NewRegistry(
+		clock.New(),
+	)
 }
 
 // New builds the speech-to-text service. The returned cleanup releases the

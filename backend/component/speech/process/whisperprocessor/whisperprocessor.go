@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/ggerganov/whisper.cpp/bindings/go/pkg/whisper"
-	"github.com/sundbassen/alfred/component/command"
 	"github.com/sundbassen/alfred/component/speech"
 	"github.com/sundbassen/alfred/internal/pcm"
 )
@@ -99,12 +98,12 @@ func (p *processor) Process(ctx context.Context, data []byte) (speech.SpeechResu
 	}
 
 	result := speech.SpeechResult{
-		Text:       command.Command(strings.TrimSpace(text.String())),
+		Text:       strings.TrimSpace(text.String()),
 		Confidence: confidence,
 	}
 
 	p.logger.Info("Command transcribed",
-		slog.String("text", string(result.Text)),
+		slog.String("text", result.Text),
 		slog.Float64("confidence", float64(confidence)),
 		slog.Float64("audio_seconds", pcm.BytesToSeconds(len(data), p.sampleRate)),
 		slog.Duration("took", time.Since(start)))

@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/sundbassen/alfred/component/command"
 	"github.com/sundbassen/alfred/component/mic"
 	"github.com/sundbassen/alfred/internal/logging"
 	"github.com/sundbassen/alfred/internal/pipeline"
@@ -75,14 +77,37 @@ func main() {
 		logger.Info("Audio channel closed")
 	}()
 
-	// Process transcriptions
+	// Interpret transcriptions as commands
+	commands := pipeline.Commands()
 	go func() {
 		for transcript := range sttService.TranscriptChannel() {
-			if transcript.Text != "" {
-				logger.Info("📝 TRANSCRIPTION",
-					slog.String("text", transcript.Text),
-					slog.Float64("confidence", transcript.Confidence))
-				// TODO: Handle transcription (e.g., send to another service, save to file, etc.)
+			if transcript.Text == "" {
+				continue
+			}
+			logger.Info("📝 TRANSCRIPTION",
+				slog.String("text", transcript.Text),
+				slog.Float64("confidence", transcript.Confidence))
+
+			resp, match, err := commands.Handle(ctx, transcript.Text)
+			switch {
+			case errors.Is(err, command.ErrNoMatch):
+				// TODO: fall back to the cloud LLM (#2)
+				attrs := []any{slog.String("text", transcript.Text)}
+				if match.Command != nil {
+					attrs = append(attrs,
+						slog.String("best_command", match.Command.ID()),
+						slog.Float64("best_score", match.Score))
+				}
+				logger.Info("No command matched", attrs...)
+			case err != nil:
+				logger.Error("Command failed", slog.Any("error", err))
+			default:
+				// TODO: speak the response (TTS)
+				logger.Info("🗣️ RESPONSE",
+					slog.String("command", match.Command.ID()),
+					slog.String("phrase", match.Phrase),
+					slog.Float64("score", match.Score),
+					slog.String("text", resp.Text))
 			}
 		}
 		logger.Info("Transcript channel closed")

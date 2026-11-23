@@ -2,14 +2,12 @@ package speech
 
 import (
 	"context"
-
-	"github.com/sundbassen/alfred/component/command"
 )
 
 type SpeechResult struct {
-	Text       command.Command // Transcribed text
-	Confidence float32         // Confidence score of the transcription
-	Answer     []byte          // Optional answer audio data
+	Text       string  // Transcribed text
+	Confidence float32 // Confidence score of the transcription
+	Answer     []byte  // Optional answer audio data
 }
 
 type Processor interface {

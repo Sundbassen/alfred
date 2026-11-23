@@ -139,7 +139,7 @@ func (c *commandController) finishCommand(ctx context.Context, command []byte) {
 			slog.Float64("command_seconds", c.seconds(len(command))),
 			slog.Duration("stt_latency", time.Since(start)))
 		c.emit(Transcript{
-			Text:       string(result.Text),
+			Text:       result.Text,
 			Confidence: float64(result.Confidence),
 			IsFinal:    true,
 		})

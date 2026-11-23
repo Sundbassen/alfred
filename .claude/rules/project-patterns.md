@@ -46,6 +46,12 @@ internal/  may import only internal/       (plus the standard library and third-
 1. Add a client package in `internal/<client>/`.
 2. Adapt it per skill in each skill's `<skill>service` package.
 
+## Configuration
+
+- **Providers are configured through the environment:** `ALFRED_<PROVIDER>_<SETTING>`, read in one place, `wiring.ConfigFromEnv()` in `cmd/internal/wiring`, into a `Config` struct of provider configs (e.g. `musicservice.SpotifyConfig`).
+- **A skill whose provider isn't configured, or isn't logged in, is left out with a log line** instead of failing startup. Alfred keeps working without it.
+- **Secrets and tokens live outside the repo** (e.g. `~/.config/alfred/`), written with mode 0600.
+
 ## Conventions
 
 - **Handlers are transport-agnostic:** they take `(ctx, concrete intent)` and return `(Response, error)`, and never see voice or HTTP types. A future HTTP API (`POST /intents/{name}`) dispatches to the same handlers.

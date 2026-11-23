@@ -38,6 +38,9 @@ type Options struct {
 	Record bool
 	// VAD selects the silence detector: "rms" (adaptive RMS) or "silero".
 	VAD string
+	// Commands, if set, biases transcription toward their phrases via
+	// whisper's initial prompt.
+	Commands *command.Registry
 }
 
 // Commands returns the registry of everything Alfred can do. Register new
@@ -81,11 +84,16 @@ func New(opts Options, logger *slog.Logger) (speechtotext.SpeechToTextService, f
 	}
 	cleanup := func() { model.Close() }
 
+	var prompt string
+	if opts.Commands != nil {
+		prompt = opts.Commands.Prompt()
+	}
 	processor := whisperprocessor.New(whisperprocessor.Config{
-		Model:      model,
-		Language:   "en",
-		SampleRate: SampleRate,
-		Logger:     logger,
+		Model:         model,
+		Language:      "en",
+		SampleRate:    SampleRate,
+		Logger:        logger,
+		InitialPrompt: prompt,
 	})
 	if processor == nil {
 		cleanup()

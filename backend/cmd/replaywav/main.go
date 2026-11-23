@@ -44,7 +44,8 @@ func main() {
 	}
 	data = append(data, make([]byte, *tailMs*pipeline.SampleRate/1000*2)...)
 
-	service, cleanup, err := pipeline.New(pipeline.Options{VAD: *vad}, logger)
+	commands := pipeline.Commands()
+	service, cleanup, err := pipeline.New(pipeline.Options{VAD: *vad, Commands: commands}, logger)
 	if err != nil {
 		logger.Error("Failed to create speech pipeline", slog.Any("error", err))
 		os.Exit(1)
@@ -58,7 +59,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	commands := pipeline.Commands()
 	transcripts := 0
 	done := make(chan struct{})
 	go func() {

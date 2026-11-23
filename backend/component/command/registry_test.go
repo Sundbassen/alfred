@@ -3,6 +3,8 @@ package command
 import (
 	"context"
 	"errors"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -89,6 +91,35 @@ func TestHandle(t *testing.T) {
 	_, _, err = r.Handle(context.Background(), "tell me a joke")
 	if !errors.Is(err, ErrNoMatch) {
 		t.Errorf("Handle(unrelated) error = %v, want ErrNoMatch", err)
+	}
+}
+
+func TestPrompt(t *testing.T) {
+	r := NewRegistry(
+		fakeCommand{id: "time", phrases: []string{"What time is it", "what is the time"}},
+		fakeCommand{id: "clock", phrases: []string{"what time is it"}}, // duplicate phrase
+	)
+	want := "What time is it? What is the time?"
+	if got := r.Prompt(); got != want {
+		t.Errorf("Prompt() = %q, want %q", got, want)
+	}
+
+	if got, want := NewRegistry(fakeCommand{id: "lights", phrases: []string{"turn on the lights"}}).Prompt(),
+		"Turn on the lights."; got != want {
+		t.Errorf("Prompt() = %q, want %q", got, want)
+	}
+
+	if got := NewRegistry().Prompt(); got != "" {
+		t.Errorf("empty registry Prompt() = %q, want empty", got)
+	}
+
+	var many []string
+	for i := range 100 {
+		many = append(many, strings.Repeat("word ", 3)+strconv.Itoa(i))
+	}
+	words := len(strings.Fields(NewRegistry(fakeCommand{id: "many", phrases: many}).Prompt()))
+	if words > maxPromptWords {
+		t.Errorf("long Prompt() has %d words, want at most %d", words, maxPromptWords)
 	}
 }
 

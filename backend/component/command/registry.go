@@ -68,6 +68,49 @@ func (r *Registry) Commands() []Command {
 	return r.commands
 }
 
+// maxPromptWords caps Prompt so it stays well inside whisper's prompt
+// window (half the 448-token text context) as commands are added.
+const maxPromptWords = 150
+
+// Prompt returns an initial prompt for speech-to-text that biases decoding
+// toward the command phrases, written as separate sentences, e.g. "What
+// time is it? Tell me the time." Phrases are deduplicated, kept in
+// registration order, and cut off at maxPromptWords.
+//
+// Sentences, not a comma-separated list: whisper continues the style of its
+// prompt, and after a list prompt greedy decoding looped ("what time is it,
+// what is it, what is it, ...") until the temperature fallback rescued it
+// at ~10x the latency.
+func (r *Registry) Prompt() string {
+	var sentences []string
+	seen := make(map[string]bool)
+	words := 0
+	for _, p := range r.phrases {
+		text := strings.TrimSpace(strings.ToLower(p.text))
+		if text == "" || seen[text] {
+			continue
+		}
+		fields := strings.Fields(text)
+		if words+len(fields) > maxPromptWords {
+			break
+		}
+		seen[text] = true
+		words += len(fields)
+
+		end := "."
+		if questionWords[fields[0]] {
+			end = "?"
+		}
+		sentences = append(sentences, strings.ToUpper(text[:1])+text[1:]+end)
+	}
+	return strings.Join(sentences, " ")
+}
+
+var questionWords = map[string]bool{
+	"what": true, "when": true, "where": true, "who": true, "why": true, "how": true,
+	"is": true, "are": true, "can": true, "could": true, "do": true, "does": true, "will": true,
+}
+
 // Match returns the best matching command phrase for the transcript. ok
 // reports whether its score reaches the threshold; the best candidate is
 // returned either way, for logging near misses.

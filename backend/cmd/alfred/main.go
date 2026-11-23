@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/sundbassen/alfred/component/command"
 	"github.com/sundbassen/alfred/component/mic"
+	"github.com/sundbassen/alfred/component/tts"
+	"github.com/sundbassen/alfred/component/tts/espeak"
 	"github.com/sundbassen/alfred/internal/logging"
 	"github.com/sundbassen/alfred/internal/pipeline"
 )
@@ -19,10 +22,17 @@ func main() {
 	record := flag.Bool("record", false,
 		"save every detected utterance as a wav file in .recordings (for collecting training samples)")
 	vad := flag.String("vad", "rms", "silence detector: rms (adaptive RMS) or silero (Silero VAD)")
+	ttsEngine := flag.String("tts", "espeak", "response voice: espeak (espeak-ng) or none (log only)")
 	flag.Parse()
 
 	// Create logger
 	logger := logging.New()
+
+	speaker, err := newSpeaker(*ttsEngine, logger)
+	if err != nil {
+		logger.Error("Failed to create speaker", slog.Any("error", err))
+		os.Exit(1)
+	}
 
 	// Create microphone service with default config
 	config := mic.DefaultConfig()
@@ -35,7 +45,9 @@ func main() {
 	// Create the speech pipeline: streaming wake word detection followed by
 	// command endpointing and transcription (or utterance recording with
 	// -record)
-	sttService, cleanup, err := pipeline.New(pipeline.Options{Record: *record, VAD: *vad}, logger)
+	commands := pipeline.Commands()
+	sttService, cleanup, err := pipeline.New(
+		pipeline.Options{Record: *record, VAD: *vad, Commands: commands}, logger)
 	if err != nil {
 		logger.Error("Failed to create speech pipeline", slog.Any("error", err))
 		os.Exit(1)
@@ -77,8 +89,7 @@ func main() {
 		logger.Info("Audio channel closed")
 	}()
 
-	// Interpret transcriptions as commands
-	commands := pipeline.Commands()
+	// Interpret transcriptions as commands and speak the response
 	go func() {
 		for transcript := range sttService.TranscriptChannel() {
 			if transcript.Text == "" {
@@ -99,15 +110,16 @@ func main() {
 						slog.Float64("best_score", match.Score))
 				}
 				logger.Info("No command matched", attrs...)
+				say(ctx, speaker, logger, "Sorry, I didn't catch that.")
 			case err != nil:
 				logger.Error("Command failed", slog.Any("error", err))
 			default:
-				// TODO: speak the response (TTS)
 				logger.Info("🗣️ RESPONSE",
 					slog.String("command", match.Command.ID()),
 					slog.String("phrase", match.Phrase),
 					slog.Float64("score", match.Score),
 					slog.String("text", resp.Text))
+				say(ctx, speaker, logger, resp.Text)
 			}
 		}
 		logger.Info("Transcript channel closed")
@@ -127,5 +139,22 @@ func main() {
 	// Stop the microphone service
 	if err := micService.Stop(); err != nil {
 		// Silent shutdown
+	}
+}
+
+func newSpeaker(engine string, logger *slog.Logger) (tts.Speaker, error) {
+	switch engine {
+	case "espeak":
+		return espeak.New(espeak.Config{Logger: logger})
+	case "none":
+		return tts.NewLogSpeaker(logger), nil
+	default:
+		return nil, fmt.Errorf("unknown -tts %q (want espeak or none)", engine)
+	}
+}
+
+func say(ctx context.Context, speaker tts.Speaker, logger *slog.Logger, text string) {
+	if err := speaker.Speak(ctx, text); err != nil && ctx.Err() == nil {
+		logger.Error("Failed to speak response", slog.Any("error", err))
 	}
 }

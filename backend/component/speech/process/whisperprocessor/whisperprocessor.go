@@ -15,9 +15,7 @@ import (
 )
 
 type processor struct {
-	whisperContext whisper.Context
-	sampleRate     int
-	logger         *slog.Logger
+	config Config
 }
 
 type Config struct {
@@ -26,43 +24,65 @@ type Config struct {
 	Threads    uint          // Decoder threads (default 4)
 	SampleRate int           // Sample rate of input audio (whisper requires 16000)
 	Logger     *slog.Logger  // Logger instance
+
+	// InitialPrompt biases decoding toward the expected vocabulary, e.g.
+	// the known command phrases. Empty means no prompt.
+	InitialPrompt string
 }
 
+// maxTokens caps a transcript's length. Commands are a handful of tokens;
+// the cap bounds the latency of a decoding loop.
+const maxTokens = 48
+
 func New(config Config) speech.Processor {
-	ctx, err := config.Model.NewContext()
-	if err != nil {
+	if config.Threads == 0 {
+		config.Threads = 4
+	}
+	p := &processor{config: config}
+	// Fail at startup, not on the first command, if the context cannot be
+	// configured (e.g. an unsupported language).
+	if _, err := p.newContext(); err != nil {
 		config.Logger.Error("Failed to create whisper context for processor", slog.Any("error", err))
 		return nil
 	}
+	return p
+}
+
+// newContext returns a freshly configured whisper context. Each command
+// gets its own: the binding's context never resets its NextSegment cursor
+// between Process calls, so a reused context returns an empty transcript
+// for every command after the first. Contexts only hold parameters (the
+// decoder state lives in the model), so creating one is cheap.
+func (p *processor) newContext() (whisper.Context, error) {
+	ctx, err := p.config.Model.NewContext()
+	if err != nil {
+		return nil, err
+	}
 
 	// English-only (.en) models reject SetLanguage; they need none.
-	if ctx.IsMultilingual() && config.Language != "" && config.Language != "auto" {
-		if err := ctx.SetLanguage(config.Language); err != nil {
-			config.Logger.Error("Failed to set whisper language",
-				slog.String("language", config.Language), slog.Any("error", err))
-			return nil
+	if lang := p.config.Language; ctx.IsMultilingual() && lang != "" && lang != "auto" {
+		if err := ctx.SetLanguage(lang); err != nil {
+			return nil, fmt.Errorf("set whisper language %q: %w", lang, err)
 		}
 	}
 
-	threads := config.Threads
-	if threads == 0 {
-		threads = 4
-	}
-
-	// Commands are short: greedy, deterministic decoding with no carried
-	// text context is both fastest and avoids one command's transcript
-	// biasing the next.
-	ctx.SetBeamSize(1)
+	// Commands are short: deterministic decoding. model.NewContext sets
+	// no_context, which clears the text history on every Process call, so
+	// one command's transcript cannot bias the next. Do not SetMaxContext(0)
+	// for that: whisper.cpp then drops the initial prompt as well.
+	//
+	// The Go binding always decodes greedily (model.NewContext hardcodes
+	// SAMPLING_GREEDY, so SetBeamSize is a no-op); the initial prompt
+	// compensates: greedy heard "what time is it" as "what I visit"
+	// without it and correctly with it.
 	ctx.SetTemperature(0)
-	ctx.SetThreads(threads)
-	ctx.SetMaxContext(0)
+	ctx.SetThreads(p.config.Threads)
 	ctx.SetSplitOnWord(false)
-
-	return &processor{
-		whisperContext: ctx,
-		sampleRate:     config.SampleRate,
-		logger:         config.Logger,
+	ctx.SetMaxTokensPerSegment(maxTokens)
+	if p.config.InitialPrompt != "" {
+		ctx.SetInitialPrompt(p.config.InitialPrompt)
 	}
+	return ctx, nil
 }
 
 func (p *processor) Process(ctx context.Context, data []byte) (speech.SpeechResult, error) {
@@ -70,8 +90,13 @@ func (p *processor) Process(ctx context.Context, data []byte) (speech.SpeechResu
 		return speech.SpeechResult{}, nil
 	}
 
+	whisperContext, err := p.newContext()
+	if err != nil {
+		return speech.SpeechResult{}, fmt.Errorf("whisper context: %w", err)
+	}
+
 	start := time.Now()
-	if err := p.whisperContext.Process(pcm.ToFloat32Normalized(data), nil, nil, nil); err != nil {
+	if err := whisperContext.Process(pcm.ToFloat32Normalized(data), nil, nil, nil); err != nil {
 		return speech.SpeechResult{}, fmt.Errorf("whisper process: %w", err)
 	}
 
@@ -79,13 +104,13 @@ func (p *processor) Process(ctx context.Context, data []byte) (speech.SpeechResu
 	var probSum float64
 	var tokens int
 	for {
-		segment, err := p.whisperContext.NextSegment()
+		segment, err := whisperContext.NextSegment()
 		if err != nil {
 			break
 		}
 		text.WriteString(segment.Text)
 		for _, token := range segment.Tokens {
-			if p.whisperContext.IsText(token) {
+			if whisperContext.IsText(token) {
 				probSum += float64(token.P)
 				tokens++
 			}
@@ -102,10 +127,10 @@ func (p *processor) Process(ctx context.Context, data []byte) (speech.SpeechResu
 		Confidence: confidence,
 	}
 
-	p.logger.Info("Command transcribed",
+	p.config.Logger.Info("Command transcribed",
 		slog.String("text", result.Text),
 		slog.Float64("confidence", float64(confidence)),
-		slog.Float64("audio_seconds", pcm.BytesToSeconds(len(data), p.sampleRate)),
+		slog.Float64("audio_seconds", pcm.BytesToSeconds(len(data), p.config.SampleRate)),
 		slog.Duration("took", time.Since(start)))
 
 	return result, nil

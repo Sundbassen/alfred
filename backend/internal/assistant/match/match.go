@@ -3,6 +3,8 @@
 package match
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"unicode"
 
@@ -11,6 +13,25 @@ import (
 
 // DefaultThreshold is the minimum score for Recognize to report a match.
 const DefaultThreshold = 0.75
+
+// ErrNoMatch is matched (errors.Is) by every *NoMatchError.
+var ErrNoMatch = errors.New("no intent matched")
+
+// NoMatchError is returned by Recognize when no phrase scores at least the
+// threshold. Best is the closest candidate (zero if there was none), for
+// logging near misses.
+type NoMatchError struct {
+	Best Result
+}
+
+func (e *NoMatchError) Error() string {
+	if e.Best.Name == "" {
+		return ErrNoMatch.Error()
+	}
+	return fmt.Sprintf("%s (best: %s %.2f)", ErrNoMatch, e.Best.Name, e.Best.Score)
+}
+
+func (e *NoMatchError) Is(target error) bool { return target == ErrNoMatch }
 
 // Result is the best phrase match for a transcript.
 type Result struct {
@@ -96,16 +117,16 @@ var questionWords = map[string]bool{
 	"is": true, "are": true, "can": true, "could": true, "do": true, "does": true, "will": true,
 }
 
-// Recognize returns the intent whose phrase best matches the transcript.
-// ok reports whether the score reaches the threshold; the best candidate is
-// returned either way, for logging near misses.
-func (m *Matcher) Recognize(transcript string) (best Result, ok bool) {
+// Recognize returns the intent whose phrase best matches the transcript,
+// or a *NoMatchError if no phrase scores at least the threshold.
+func (m *Matcher) Recognize(transcript string) (Result, error) {
 	normalized := normalize(transcript)
 	tokens := strings.Fields(normalized)
 	if len(tokens) == 0 {
-		return Result{}, false
+		return Result{}, &NoMatchError{}
 	}
 
+	var best Result
 	for _, p := range m.phrases {
 		var score float64
 		if p.normalized == normalized {
@@ -117,7 +138,10 @@ func (m *Matcher) Recognize(transcript string) (best Result, ok bool) {
 			best = Result{Name: p.intent, Phrase: p.text, Score: score}
 		}
 	}
-	return best, best.Name != "" && best.Score >= m.Threshold
+	if best.Name == "" || best.Score < m.Threshold {
+		return Result{}, &NoMatchError{Best: best}
+	}
+	return best, nil
 }
 
 var contractions = map[string]string{

@@ -1,6 +1,7 @@
 package match
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 	"testing"
@@ -53,15 +54,15 @@ func TestRecognize(t *testing.T) {
 		{"", "", false},
 	}
 	for _, tt := range tests {
-		res, ok := m.Recognize(tt.transcript)
+		res, err := m.Recognize(tt.transcript)
 		if tt.wantName == "" {
-			if ok {
-				t.Errorf("Recognize(%q) = %s (%.2f), want no match", tt.transcript, res.Name, res.Score)
+			if !errors.Is(err, ErrNoMatch) {
+				t.Errorf("Recognize(%q) = %+v, %v; want ErrNoMatch", tt.transcript, res, err)
 			}
 			continue
 		}
-		if !ok || res.Name != tt.wantName {
-			t.Errorf("Recognize(%q) = %+v, %v; want %s", tt.transcript, res, ok, tt.wantName)
+		if err != nil || res.Name != tt.wantName {
+			t.Errorf("Recognize(%q) = %+v, %v; want %s", tt.transcript, res, err, tt.wantName)
 			continue
 		}
 		if tt.wantExact && res.Score != 1 {
@@ -94,5 +95,13 @@ func TestPrompt(t *testing.T) {
 	words := len(strings.Fields(New(routes(route("many", many...))).Prompt()))
 	if words > maxPromptWords {
 		t.Errorf("long Prompt() has %d words, want at most %d", words, maxPromptWords)
+	}
+}
+
+func TestNoMatchErrorCarriesBest(t *testing.T) {
+	_, err := newTestMatcher().Recognize("tell me a joke about time")
+	var noMatch *NoMatchError
+	if !errors.As(err, &noMatch) || noMatch.Best.Name != "time" || noMatch.Best.Score == 0 {
+		t.Errorf("Recognize = %v; want a *NoMatchError with best candidate time", err)
 	}
 }

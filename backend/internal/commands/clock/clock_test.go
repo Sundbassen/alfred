@@ -31,9 +31,9 @@ func TestPhrasesAreRecognized(t *testing.T) {
 		"Hey Alfred, what's the time?",
 		"Tell me the time, please.",
 	} {
-		res, ok := m.Recognize(transcript)
-		if !ok || res.Name != (AskTime{}).IntentName() {
-			t.Errorf("Recognize(%q) = %+v, %v; want time", transcript, res, ok)
+		res, err := m.Recognize(transcript)
+		if err != nil || res.Name != (AskTime{}).IntentName() {
+			t.Errorf("Recognize(%q) = %+v, %v; want time", transcript, res, err)
 		}
 	}
 }

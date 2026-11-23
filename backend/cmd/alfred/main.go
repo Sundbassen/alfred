@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -10,6 +11,8 @@ import (
 	"syscall"
 
 	"github.com/sundbassen/alfred/internal/app"
+	"github.com/sundbassen/alfred/internal/assistant"
+	"github.com/sundbassen/alfred/internal/assistant/match"
 	"github.com/sundbassen/alfred/internal/platform/logging"
 	"github.com/sundbassen/alfred/internal/voice/mic"
 	"github.com/sundbassen/alfred/internal/voice/tts"
@@ -107,23 +110,23 @@ func main() {
 				slog.Float64("confidence", transcript.Confidence))
 
 			reply, err := asst.Respond(ctx, transcript.Text)
+			var noMatch *match.NoMatchError
 			switch {
-			case err != nil:
-				logger.Error("Command failed",
-					slog.String("intent", reply.Match.Name), slog.Any("error", err))
-			case !reply.Matched:
+			case errors.As(err, &noMatch):
 				// TODO: fall back to the cloud LLM (#2)
 				logger.Info("No command matched", slog.String("text", transcript.Text),
-					slog.String("best_intent", reply.Match.Name),
-					slog.Float64("best_score", reply.Match.Score))
+					slog.String("best_intent", noMatch.Best.Name),
+					slog.Float64("best_score", noMatch.Best.Score))
+				say(ctx, speaker, logger, app.NoMatchText)
+			case err != nil:
+				logger.Error("Command failed", slog.Any("error", err))
+				say(ctx, speaker, logger, assistant.SpokenText(err))
 			default:
 				logger.Info("🗣️ RESPONSE",
 					slog.String("intent", reply.Match.Name),
 					slog.String("phrase", reply.Match.Phrase),
 					slog.Float64("score", reply.Match.Score),
 					slog.String("text", reply.Text))
-			}
-			if reply.Text != "" {
 				say(ctx, speaker, logger, reply.Text)
 			}
 		}

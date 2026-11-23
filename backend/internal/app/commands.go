@@ -10,7 +10,6 @@ import (
 // services they need (e.g. lights.Register(r, services.HomeAssistant)).
 func Router() *assistant.Router {
 	r := assistant.NewRouter()
-	r.Use(assistant.SpeakErrors)
 
 	clock.Register(r)
 

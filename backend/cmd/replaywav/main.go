@@ -11,6 +11,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -18,6 +19,8 @@ import (
 	"time"
 
 	"github.com/sundbassen/alfred/internal/app"
+	"github.com/sundbassen/alfred/internal/assistant"
+	"github.com/sundbassen/alfred/internal/assistant/match"
 	"github.com/sundbassen/alfred/internal/platform/logging"
 	"github.com/sundbassen/alfred/internal/platform/wav"
 )
@@ -69,13 +72,14 @@ func main() {
 			fmt.Printf("TRANSCRIPT: %q (confidence %.2f)\n", transcript.Text, transcript.Confidence)
 
 			reply, err := asst.Respond(ctx, transcript.Text)
+			var noMatch *match.NoMatchError
 			switch {
-			case err != nil:
-				fmt.Printf("COMMAND FAILED [%s]: %v (says %q)\n", reply.Match.Name, err, reply.Text)
-			case !reply.Matched && reply.Match.Name != "":
-				fmt.Printf("NO MATCH (best: %s %.2f)\n", reply.Match.Name, reply.Match.Score)
-			case !reply.Matched:
+			case errors.As(err, &noMatch) && noMatch.Best.Name != "":
+				fmt.Printf("NO MATCH (best: %s %.2f)\n", noMatch.Best.Name, noMatch.Best.Score)
+			case errors.As(err, &noMatch):
 				fmt.Println("NO MATCH")
+			case err != nil:
+				fmt.Printf("COMMAND FAILED: %v (says %q)\n", err, assistant.SpokenText(err))
 			default:
 				fmt.Printf("RESPONSE: [%s %.2f] %q\n", reply.Match.Name, reply.Match.Score, reply.Text)
 			}

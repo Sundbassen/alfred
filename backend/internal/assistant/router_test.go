@@ -3,6 +3,7 @@ package assistant
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -100,26 +101,19 @@ func TestMiddlewareOrder(t *testing.T) {
 	}
 }
 
-func TestSpeakErrors(t *testing.T) {
+func TestSpokenText(t *testing.T) {
 	cause := errors.New("connection refused")
 	tests := []struct {
-		err      error
-		wantText string
+		err  error
+		want string
 	}{
 		{&SpokenError{Text: "I can't reach the lights", Err: cause}, "I can't reach the lights"},
+		{fmt.Errorf("lights_on: %w", &SpokenError{Text: "No room called attic"}), "No room called attic"},
 		{cause, FailedText},
 	}
 	for _, tt := range tests {
-		r := NewRouter()
-		r.Use(SpeakErrors)
-		Handle(r, Spec{}, func(context.Context, askTime) (Response, error) { return Response{}, tt.err })
-
-		resp, err := r.Dispatch(context.Background(), askTime{})
-		if resp.Text != tt.wantText {
-			t.Errorf("Text = %q, want %q", resp.Text, tt.wantText)
-		}
-		if !errors.Is(err, cause) {
-			t.Errorf("error = %v, want it to wrap the cause", err)
+		if got := SpokenText(tt.err); got != tt.want {
+			t.Errorf("SpokenText(%v) = %q, want %q", tt.err, got, tt.want)
 		}
 	}
 }

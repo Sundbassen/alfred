@@ -60,8 +60,8 @@ type Middleware func(Handler) Handler
 var ErrUnknownIntent = errors.New("unknown intent")
 
 // SpokenError is a failure the user should hear about, e.g. "I couldn't
-// find a room called attic". Handlers return it (wrapping the cause); the
-// SpeakErrors middleware turns it into the Response text.
+// find a room called attic". Handlers return it, wrapping the cause;
+// SpokenText extracts what to say.
 type SpokenError struct {
 	Text string // what to say
 	Err  error  // the cause, for logs; may be nil

@@ -1,7 +1,12 @@
-.PHONY: build all install clean prereqs run review replay wakestats
+.PHONY: build all install clean prereqs run review replay wakestats test vet
 
-# Whisper.cpp paths
+# Whisper.cpp source, pinned so every machine (and CI) builds the same
+# version the Go bindings were tested against
+WHISPER_REPO := https://github.com/ggerganov/whisper.cpp.git
+WHISPER_REF := 96ec4d9823e9d0211944172da35f9f29134af990
 WHISPER_DIR := /tmp/whisper.cpp
+# Extra cmake flags, e.g. -DGGML_NATIVE=OFF for a portable build (CI)
+WHISPER_CMAKE_FLAGS ?=
 WHISPER_INCLUDE := $(WHISPER_DIR)/include
 GGML_INCLUDE := $(WHISPER_DIR)/ggml/include
 WHISPER_LIB := $(WHISPER_DIR)/build/bin
@@ -22,23 +27,25 @@ export LD_LIBRARY_PATH := $(WHISPER_LIB):$(GGML_LIB):$(ONNXRUNTIME_DIR)/lib
 # Install system prerequisites
 prereqs:
 	@echo "Installing system prerequisites..."
-	@echo "To be able to run this project you need to install cmake base-devel go curl"
+	@echo "To be able to run this project you need to install cmake base-devel go curl git espeak-ng"
 
 # Install dependencies
 install:
-	@echo "Setting up whisper.cpp..."
-	@if [ ! -d "$(WHISPER_DIR)" ]; then \
-		echo "Cloning whisper.cpp..."; \
-		git clone https://github.com/ggerganov/whisper.cpp.git $(WHISPER_DIR); \
+	@echo "Setting up whisper.cpp $(WHISPER_REF)..."
+	@if [ ! -d "$(WHISPER_DIR)/.git" ]; then \
+		git init -q $(WHISPER_DIR) && \
+		git -C $(WHISPER_DIR) remote add origin $(WHISPER_REPO); \
+	fi
+	@if [ "$$(git -C $(WHISPER_DIR) rev-parse HEAD 2>/dev/null)" != "$(WHISPER_REF)" ]; then \
+		echo "Fetching whisper.cpp $(WHISPER_REF)..."; \
+		git -C $(WHISPER_DIR) fetch -q --depth 1 origin $(WHISPER_REF) && \
+		git -C $(WHISPER_DIR) checkout -q FETCH_HEAD; \
 	else \
-		echo "whisper.cpp already cloned"; \
+		echo "whisper.cpp already at $(WHISPER_REF)"; \
 	fi
 	@echo "Building whisper.cpp..."
-	@cd $(WHISPER_DIR) && \
-		mkdir -p build && \
-		cd build && \
-		cmake .. && \
-		make
+	@cmake -S $(WHISPER_DIR) -B $(WHISPER_DIR)/build $(WHISPER_CMAKE_FLAGS) && \
+		cmake --build $(WHISPER_DIR)/build -j $$(nproc)
 	@echo "whisper.cpp setup complete!"
 	@echo "Setting up ONNX Runtime..."
 	@if [ ! -f "$(ONNXRUNTIME_DIR)/lib/libonnxruntime.so" ]; then \
@@ -79,6 +86,15 @@ review:
 # clips and listening time:  make wakestats [ATTEMPTS=40]
 wakestats:
 	@go run ./cmd/wakestats $(if $(ATTEMPTS),-attempts $(ATTEMPTS))
+
+# Run the tests / go vet with the whisper.cpp cgo flags above (plain
+# `go test ./...` fails with "whisper.h: No such file or directory").
+# Tests that need downloaded models skip when they are missing.
+test:
+	go test ./...
+
+vet:
+	go vet ./...
 
 # Clean build artifacts
 clean:

@@ -51,16 +51,21 @@ func main() {
 	// Create the speech pipeline: streaming wake word detection followed by
 	// command endpointing and transcription
 	router := assistant.NewRouter()
-	if err := wiring.RegisterSkills(router, wiring.ConfigFromEnv(), logger); err != nil {
+	cfg := wiring.ConfigFromEnv()
+	if err := wiring.RegisterSkills(router, cfg, logger); err != nil {
 		logger.Error("Failed to set up skills", slog.Any("error", err))
 		os.Exit(1)
 	}
-	templates := match.New(router.Intents())
-	asst := app.NewAssistant(router, templates)
+	asst, err := wiring.NewAssistant(router, cfg, logger)
+	if err != nil {
+		logger.Error("Failed to set up recognition", slog.Any("error", err))
+		os.Exit(1)
+	}
+	defer asst.Close()
 	sttService, cleanup, err := app.New(
 		app.Options{
 			VAD:               *vad,
-			Prompt:            templates.Prompt(),
+			Prompt:            asst.Prompt,
 			Verbose:           *verbose,
 			SaveDir:           saveDir(*save),
 			NearMissThreshold: float32(*nearMiss),

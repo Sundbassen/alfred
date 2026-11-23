@@ -28,12 +28,13 @@ jobs:
         run: |
           echo "whisper=$(sed -n 's/^WHISPER_REF := //p' Makefile)" >> "$GITHUB_OUTPUT"
           echo "ort=$(sed -n 's/^ONNXRUNTIME_VERSION := //p' Makefile)" >> "$GITHUB_OUTPUT"
+          echo "llama=$(sed -n 's/^LLAMA_REF := //p' Makefile)" >> "$GITHUB_OUTPUT"
 
       - name: Cache whisper.cpp and ONNX Runtime
         uses: actions/cache@v4
         with:
           path: backend/.deps
-          key: native-${{ runner.os }}-whisper-${{ steps.deps.outputs.whisper }}-ort-${{ steps.deps.outputs.ort }}
+          key: native-${{ runner.os }}-whisper-${{ steps.deps.outputs.whisper }}-ort-${{ steps.deps.outputs.ort }}-llama-${{ steps.deps.outputs.llama }}
 
       # Portable build: a cached -march=native build could crash on a runner
       # with a different CPU.

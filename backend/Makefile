@@ -24,6 +24,17 @@ ONNXRUNTIME_DIR := $(DEPS_DIR)/onnxruntime
 ONNXRUNTIME_WHEEL_URL := https://files.pythonhosted.org/packages/7c/43/2a4e04f8dbeffad19bbcced4bcd4289bf478921518437404d6b92bdf213b/onnxruntime-1.26.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
 ONNXRUNTIME_WHEEL_SHA256 := 9b6dd70599005bd1bf29779f04a91978b92b5e719c11a20068a8f8e535f725b6
 
+# llama.cpp, for its llama-server: runs the local intent model as a child
+# process of Alfred (internal/llm/llamaserver). Pinned like whisper.cpp;
+# built without its web UI (Alfred only uses the API).
+LLAMA_REPO := https://github.com/ggml-org/llama.cpp.git
+LLAMA_REF := b1b770d90d94cad9e9ea5b993bdbc383a522fb28
+LLAMA_DIR := $(DEPS_DIR)/llama.cpp
+LLAMA_CMAKE_FLAGS ?=
+
+# llama-server binary for the app (wiring.ConfigFromEnv)
+export ALFRED_LLAMA_SERVER := $(LLAMA_DIR)/build-server/bin/llama-server
+
 # CGO flags. The rpath lets ./alfred and the tools find libwhisper/libggml
 # without LD_LIBRARY_PATH.
 export CGO_CFLAGS := -I$(WHISPER_INCLUDE) -I$(GGML_INCLUDE)
@@ -71,6 +82,23 @@ install:
 		echo "ONNX Runtime already installed"; \
 	fi
 	@echo "ONNX Runtime setup complete!"
+	@echo "Setting up llama.cpp $(LLAMA_REF)..."
+	@if [ ! -d "$(LLAMA_DIR)/.git" ]; then \
+		git init -q $(LLAMA_DIR) && \
+		git -C $(LLAMA_DIR) remote add origin $(LLAMA_REPO); \
+	fi
+	@if [ "$$(git -C $(LLAMA_DIR) rev-parse HEAD 2>/dev/null)" != "$(LLAMA_REF)" ]; then \
+		echo "Fetching llama.cpp $(LLAMA_REF)..."; \
+		git -C $(LLAMA_DIR) fetch -q --depth 1 origin $(LLAMA_REF) && \
+		git -C $(LLAMA_DIR) checkout -q FETCH_HEAD; \
+	else \
+		echo "llama.cpp already at $(LLAMA_REF)"; \
+	fi
+	@echo "Building llama-server..."
+	@cmake -S $(LLAMA_DIR) -B $(LLAMA_DIR)/build-server -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF \
+		-DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_UI=OFF -DLLAMA_USE_PREBUILT_UI=OFF $(LLAMA_CMAKE_FLAGS) && \
+		cmake --build $(LLAMA_DIR)/build-server --target llama-server -j $$(nproc)
+	@echo "llama.cpp setup complete!"
 
 # Build the application
 build:

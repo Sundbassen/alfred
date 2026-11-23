@@ -1,6 +1,7 @@
 package wiring
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -43,5 +44,29 @@ func TestMusicNeedsSpotifyConfigAndLogin(t *testing.T) {
 	}
 	if got := intents(t, cfg); !got["music_play"] || !got["music_mix"] || !got["time"] {
 		t.Errorf("logged in: intents %v, want clock and music", got)
+	}
+}
+
+func TestAssistantWithoutModelUsesTemplates(t *testing.T) {
+	r := assistant.NewRouter()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	cfg := Config{IntentModel: IntentModelConfig{Server: filepath.Join(t.TempDir(), "llama-server"), ModelFile: "missing.gguf"}}
+	if err := RegisterSkills(r, cfg, logger); err != nil {
+		t.Fatal(err)
+	}
+	a, err := NewAssistant(r, cfg, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if err := a.WaitReady(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if a.Prompt == "" {
+		t.Error("prompt is empty")
+	}
+	reply, err := a.Respond(context.Background(), "what time is it")
+	if err != nil || reply.Recognition.By != "templates" {
+		t.Errorf("Respond = %+v, %v; want a templates match", reply, err)
 	}
 }

@@ -22,7 +22,9 @@ internal/  may import only internal/       (plus the standard library and third-
 | `skills/<skill>/` | One skill: its intent types, its handlers, the interfaces its handlers need, and `Register(r *assistant.Router, deps...)` registering all of its intents. There is no `skills` package, only one package per skill |
 | `skills/<skill>/<skill>service/` | Providers implementing that skill's interfaces, one file per provider (e.g. `musicservice/spotify.go` with `NewSpotify(...) *Spotify`). Constructors return concrete types. The skill never imports this package; this package may import the skill (for shared types) and `internal/` |
 | `internal/assistant/` | The intent contract and router: `Intent`, `Handle[I]`, `Router`, `Response`, `Spec`, `SpokenError`, `SpokenText` |
-| `internal/assistant/match/` | The local recognizer (phrase matching). Further recognizers (e.g. the Claude fallback) go alongside it and produce the same intents |
+| `internal/assistant/match/` | The phrase-template recognizer (the first tier) |
+| `internal/assistant/llm/` | The model-agnostic language-model recognizer: prompt and JSON schema from the intents, validation of the answer. Models plug in through its `Model` interface. Further recognizers (e.g. the Claude fallback) go alongside and produce the same `assistant.Recognition` |
+| `internal/llm/<model>/` | Language model implementations of `llm.Model` (e.g. `ministral`), plus `internal/llm/llamaserver` (runs llama.cpp's server as a child process) |
 | `internal/app/` | Wires the voice framework into a listener, plus `Assistant` (recognize → dispatch). It never imports skills |
 | `internal/voice/` | The voice framework: `listener`, `wakeword`, `stt`, `vad` (+ `silero`), `mic`, `tts`, `recorder`. Its contracts are in `voice.go` |
 | `internal/platform/` | Shared helpers: `fault` (error categories, see `go-errors.md`), `pcm`, `wav`, `onnxrt`, `logging`, `wakeclip` |
@@ -41,6 +43,12 @@ internal/  may import only internal/       (plus the standard library and third-
 **Add a provider:**
 1. Add `skills/<skill>/<skill>service/<provider>.go`, implementing the skill's interface.
 2. Construct it in `cmd/internal/wiring/skills.go` and pass it to the skill's `Register`.
+
+**Switch or add an intent model:**
+1. Add `internal/llm/<model>/` implementing `llm.Model` (usually a thin layer over `llamaserver`).
+2. Construct it in `cmd/internal/wiring/assistant.go` instead of, or as a tier after, the current one.
+
+Recognition, the router and the skills don't change.
 
 **Add shared infrastructure:**
 1. Add a client package in `internal/<client>/`.

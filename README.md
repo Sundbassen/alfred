@@ -94,18 +94,22 @@ The measurement protocol is in [#3](https://github.com/Sundbassen/alfred/issues/
 
 ## Project layout
 
+`backend/internal/` is split by role:
+
 | Path | What's there |
 |---|---|
-| `backend/cmd/alfred` | the assistant |
-| `backend/cmd/replaywav`, `reviewrecordings`, `wakestats`, `micdebug` | development tools |
-| `backend/component/speechtotext` | listening → command state machine, endpointing, lookback |
-| `backend/component/speech/activate/onnxactivator` | streaming openWakeWord port (melspectrogram → embedding → classifier) |
-| `backend/component/speech/process/whisperprocessor` | whisper.cpp transcription |
-| `backend/component/command` | command interface, registry and matcher; `clock` is the first command |
-| `backend/component/debounce` | silence detection (adaptive RMS, Silero VAD) |
-| `backend/component/recorder`, `tts`, `mic` | saving audio, spoken replies, microphone |
-| `backend/internal/pipeline` | wires the components together |
-| `trainwakeword/` | wake word training script |
+| `voice/` | the voice framework: audio in → transcript, text → speech |
+| `voice/listener` | listening → command state machine, endpointing, lookback |
+| `voice/wakeword` | streaming openWakeWord port (melspectrogram → embedding → classifier) |
+| `voice/stt` | whisper.cpp transcription |
+| `voice/vad` | silence detection (adaptive RMS; `vad/silero`: Silero VAD) |
+| `voice/mic`, `voice/tts`, `voice/recorder` | microphone, spoken replies, saving audio |
+| `assistant/` | the `Command` interface, registry and phrase matcher |
+| `commands/` | one package per command; `clock` is the first |
+| `app/` | wires voice, assistant and commands together; `app.Commands()` lists the registered commands |
+| `platform/` | shared helpers: PCM/wav, ONNX Runtime, logging |
+
+Development tools live in `backend/cmd/` (`replaywav`, `reviewrecordings`, `wakestats`, `micdebug`); training is in `trainwakeword/`.
 
 ## Privacy
 

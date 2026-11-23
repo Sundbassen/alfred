@@ -18,10 +18,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/sundbassen/alfred/component/command"
-	"github.com/sundbassen/alfred/internal/logging"
-	"github.com/sundbassen/alfred/internal/pipeline"
-	"github.com/sundbassen/alfred/internal/wav"
+	"github.com/sundbassen/alfred/internal/app"
+	"github.com/sundbassen/alfred/internal/assistant"
+	"github.com/sundbassen/alfred/internal/platform/logging"
+	"github.com/sundbassen/alfred/internal/platform/wav"
 )
 
 func main() {
@@ -40,15 +40,15 @@ func main() {
 
 	logger := logging.New(*verbose)
 
-	data, err := wav.Read(flag.Arg(0), pipeline.SampleRate)
+	data, err := wav.Read(flag.Arg(0), app.SampleRate)
 	if err != nil {
 		logger.Error("Failed to read wav", slog.Any("error", err))
 		os.Exit(1)
 	}
-	data = append(data, make([]byte, *tailMs*pipeline.SampleRate/1000*2)...)
+	data = append(data, make([]byte, *tailMs*app.SampleRate/1000*2)...)
 
-	commands := pipeline.Commands()
-	service, cleanup, err := pipeline.New(pipeline.Options{VAD: *vad, Commands: commands, SaveDir: *save, Verbose: *verbose}, logger)
+	commands := app.Commands()
+	service, cleanup, err := app.New(app.Options{VAD: *vad, Commands: commands, SaveDir: *save, Verbose: *verbose}, logger)
 	if err != nil {
 		logger.Error("Failed to create speech pipeline", slog.Any("error", err))
 		os.Exit(1)
@@ -72,7 +72,7 @@ func main() {
 
 			resp, match, err := commands.Handle(ctx, transcript.Text)
 			switch {
-			case errors.Is(err, command.ErrNoMatch):
+			case errors.Is(err, assistant.ErrNoMatch):
 				if match.Command != nil {
 					fmt.Printf("NO MATCH (best: %s %.2f)\n", match.Command.ID(), match.Score)
 				} else {
@@ -87,7 +87,7 @@ func main() {
 	}()
 
 	chunkBytes := *chunkSamples * 2
-	interval := time.Duration(float64(*chunkSamples) / pipeline.SampleRate / *speed * float64(time.Second))
+	interval := time.Duration(float64(*chunkSamples) / app.SampleRate / *speed * float64(time.Second))
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for off := 0; off < len(data); off += chunkBytes {
@@ -102,5 +102,5 @@ func main() {
 	cancel()
 	service.Stop()
 	fmt.Printf("replayed %.2f s of audio, %d transcript(s)\n",
-		float64(len(data))/float64(pipeline.SampleRate*2), transcripts)
+		float64(len(data))/float64(app.SampleRate*2), transcripts)
 }

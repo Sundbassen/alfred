@@ -24,7 +24,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sundbassen/alfred/internal/wakeclip"
+	"github.com/sundbassen/alfred/internal/platform/wakeclip"
 )
 
 const (

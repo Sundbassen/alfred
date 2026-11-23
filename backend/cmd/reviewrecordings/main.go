@@ -1,5 +1,6 @@
-// reviewrecordings plays each wake word recording in .recordings and asks
-// whether to keep it. Kept files move to .recordings/validated (the
+// reviewrecordings plays each wake word recording in .recordings (from
+// -record) and .recordings/wakeword (from -save) and asks whether to keep
+// it. Kept files move to .recordings/validated (the
 // directory to pass to training via --custom-samples); rejected files are
 // deleted.
 package main
@@ -16,6 +17,7 @@ import (
 
 const (
 	recordingsDir = ".recordings"
+	wakewordDir   = ".recordings/wakeword"
 	validatedDir  = ".recordings/validated"
 )
 
@@ -27,15 +29,19 @@ func play(path string) error {
 }
 
 func main() {
-	files, err := filepath.Glob(filepath.Join(recordingsDir, "*.wav"))
-	if err != nil {
-		fmt.Println("failed to list recordings:", err)
-		os.Exit(1)
+	var files []string
+	for _, dir := range []string{recordingsDir, wakewordDir} {
+		matches, err := filepath.Glob(filepath.Join(dir, "*.wav"))
+		if err != nil {
+			fmt.Println("failed to list recordings:", err)
+			os.Exit(1)
+		}
+		files = append(files, matches...)
 	}
-	sort.Strings(files)
+	sort.Slice(files, func(i, j int) bool { return filepath.Base(files[i]) < filepath.Base(files[j]) })
 
 	if len(files) == 0 {
-		fmt.Printf("no recordings to review in %s\n", recordingsDir)
+		fmt.Printf("no recordings to review in %s or %s\n", recordingsDir, wakewordDir)
 		return
 	}
 

@@ -9,7 +9,6 @@ package recordingactivator
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"log/slog"
 	"os"
@@ -17,6 +16,7 @@ import (
 	"time"
 
 	"github.com/sundbassen/alfred/component/speech"
+	"github.com/sundbassen/alfred/internal/wav"
 )
 
 type activator struct {
@@ -67,7 +67,7 @@ func (a *activator) Activate(ctx context.Context, data []byte) (bool, error) {
 	}
 
 	path := filepath.Join(a.dir, name)
-	if saveErr := a.saveWav(path, data); saveErr != nil {
+	if saveErr := wav.Write(path, data, a.sampleRate); saveErr != nil {
 		a.logger.Error("Failed to save recording", slog.String("path", path), slog.Any("error", saveErr))
 	} else {
 		a.logger.Info("Utterance recorded",
@@ -76,42 +76,4 @@ func (a *activator) Activate(ctx context.Context, data []byte) (bool, error) {
 	}
 
 	return activated, err
-}
-
-// saveWav writes little-endian 16-bit mono PCM data as a wav file.
-func (a *activator) saveWav(path string, data []byte) error {
-	const (
-		bitsPerSample = 16
-		numChannels   = 1
-	)
-	byteRate := a.sampleRate * numChannels * bitsPerSample / 8
-
-	header := make([]byte, 44)
-	copy(header[0:4], "RIFF")
-	binary.LittleEndian.PutUint32(header[4:8], uint32(36+len(data)))
-	copy(header[8:12], "WAVE")
-	copy(header[12:16], "fmt ")
-	binary.LittleEndian.PutUint32(header[16:20], 16) // PCM fmt chunk size
-	binary.LittleEndian.PutUint16(header[20:22], 1)  // PCM format
-	binary.LittleEndian.PutUint16(header[22:24], numChannels)
-	binary.LittleEndian.PutUint32(header[24:28], uint32(a.sampleRate))
-	binary.LittleEndian.PutUint32(header[28:32], uint32(byteRate))
-	binary.LittleEndian.PutUint16(header[32:34], numChannels*bitsPerSample/8)
-	binary.LittleEndian.PutUint16(header[34:36], bitsPerSample)
-	copy(header[36:40], "data")
-	binary.LittleEndian.PutUint32(header[40:44], uint32(len(data)))
-
-	file, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	if _, err := file.Write(header); err != nil {
-		return err
-	}
-	if _, err := file.Write(data); err != nil {
-		return err
-	}
-	return file.Sync()
 }

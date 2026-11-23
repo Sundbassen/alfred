@@ -44,6 +44,7 @@ type sttService struct {
 	speechProcessor speech.SpeechProcessor
 	streaming       speech.StreamingActivator
 	command         commandConfig
+	sink            AudioSink
 	logger          *slog.Logger
 }
 
@@ -67,6 +68,15 @@ type Config struct {
 	CommandMaxMs       int // force-end a command after this long (default 10000)
 	CommandPreRollMs   int // audio kept from before command speech starts (default 100)
 	CommandMinMs       int // minimum command length before a silence gap may end it (default 300)
+	CommandLookbackMs  int // audio from before a mid-speech activation prepended to the command (default 300)
+
+	// Sink, if set, receives wake word clips, near misses and commands
+	// (the -save option).
+	Sink AudioSink
+	// NearMissThreshold: listening utterances whose wake word score peaks
+	// at or above this without a detection go to Sink.NearMiss
+	// (default 0.005).
+	NearMissThreshold float32
 }
 
 // DefaultConfig returns a default configuration
@@ -89,6 +99,9 @@ func NewSTTService(config Config, logger *slog.Logger) (SpeechToTextService, err
 	if config.SampleRate == 0 {
 		config.SampleRate = 16000
 	}
+	if config.NearMissThreshold == 0 {
+		config.NearMissThreshold = 0.005
+	}
 
 	service := &sttService{
 		transcriptChan:  make(chan Transcript, config.BufferSize),
@@ -107,7 +120,13 @@ func NewSTTService(config Config, logger *slog.Logger) (SpeechToTextService, err
 			maxBytes:        pcm.MsToBytes(withDefault(config.CommandMaxMs, 10000), config.SampleRate),
 			preRollBytes:    pcm.MsToBytes(withDefault(config.CommandPreRollMs, 100), config.SampleRate),
 			minBytes:        pcm.MsToBytes(withDefault(config.CommandMinMs, 300), config.SampleRate),
+
+			lookbackBytes:      pcm.MsToBytes(withDefault(config.CommandLookbackMs, 300), config.SampleRate),
+			listenPreRollBytes: pcm.MsToBytes(300, config.SampleRate),
+			hitClipBytes:       pcm.MsToBytes(3000, config.SampleRate),
+			nearMissThreshold:  config.NearMissThreshold,
 		},
+		sink:   config.Sink,
 		logger: logger,
 	}
 
@@ -186,7 +205,7 @@ func (s *sttService) processAudioLoop(ctx context.Context) {
 // commandLoop feeds every chunk to the command controller (see command.go).
 func (s *sttService) commandLoop(ctx context.Context) {
 	controller := newCommandController(s.streaming, s.silenceDetector, s.speechProcessor,
-		s.command, s.logger, s.emit)
+		s.sink, s.command, s.logger, s.emit)
 
 	for {
 		select {

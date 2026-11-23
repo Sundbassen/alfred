@@ -11,17 +11,24 @@ import (
 )
 
 // Chunks in these tests encode their own classification: the first byte is
-// 'S' for silence or 'V' for voice, and 'W' marks the chunk on which the
-// fake activator fires (voice).
+// 'S' for silence or 'V' for voice, 'W' marks the chunk on which the fake
+// activator fires (voice, score 0.5), and 'N' is voice scoring 0.01 (a near
+// miss).
 
 type fakeActivator struct {
 	fed    [][]byte
 	resets int
 }
 
-func (f *fakeActivator) Feed(_ context.Context, chunk []byte) (bool, error) {
+func (f *fakeActivator) Feed(_ context.Context, chunk []byte) (float32, bool, error) {
 	f.fed = append(f.fed, chunk)
-	return chunk[0] == 'W', nil
+	switch chunk[0] {
+	case 'W':
+		return 0.5, true, nil
+	case 'N':
+		return 0.01, false, nil
+	}
+	return 0.001, false, nil
 }
 
 func (f *fakeActivator) Reset() { f.resets++ }
@@ -33,6 +40,29 @@ func (f *fakeDetector) IsSilent(_ context.Context, chunk []byte) bool {
 	return chunk[0] == 'S'
 }
 
+type fakeSink struct {
+	wake, near   [][]byte
+	wakeScores   []float32
+	nearScores   []float32
+	commands     [][]byte
+	commandTexts []string
+}
+
+func (f *fakeSink) WakeWord(audio []byte, score float32) {
+	f.wake = append(f.wake, audio)
+	f.wakeScores = append(f.wakeScores, score)
+}
+
+func (f *fakeSink) NearMiss(audio []byte, score float32) {
+	f.near = append(f.near, audio)
+	f.nearScores = append(f.nearScores, score)
+}
+
+func (f *fakeSink) Command(audio []byte, transcript Transcript) {
+	f.commands = append(f.commands, audio)
+	f.commandTexts = append(f.commandTexts, transcript.Text)
+}
+
 type fakeProcessor struct{ got [][]byte }
 
 func (f *fakeProcessor) Process(_ context.Context, data []byte) (speech.SpeechResult, error) {
@@ -41,15 +71,18 @@ func (f *fakeProcessor) Process(_ context.Context, data []byte) (speech.SpeechRe
 }
 
 // testCommandConfig: 4-byte chunks; 8-byte silence gap, 12-byte timeout,
-// 40-byte max, no pre-roll, 8-byte minimum.
+// 40-byte max, no pre-roll, 8-byte minimum, no lookback, 8-byte wake word
+// clips, near misses from 0.005.
 func testCommandConfig() commandConfig {
 	return commandConfig{
-		sampleRate:      16000,
-		silenceGapBytes: 8,
-		timeoutBytes:    12,
-		maxBytes:        40,
-		preRollBytes:    0,
-		minBytes:        8,
+		sampleRate:        16000,
+		silenceGapBytes:   8,
+		timeoutBytes:      12,
+		maxBytes:          40,
+		preRollBytes:      0,
+		minBytes:          8,
+		hitClipBytes:      8,
+		nearMissThreshold: 0.005,
 	}
 }
 
@@ -59,14 +92,15 @@ type harness struct {
 	act         *fakeActivator
 	det         *fakeDetector
 	proc        *fakeProcessor
+	sink        *fakeSink
 	transcripts []Transcript
 	ctrl        *commandController
 }
 
 func newHarness(config commandConfig) *harness {
-	h := &harness{act: &fakeActivator{}, det: &fakeDetector{}, proc: &fakeProcessor{}}
+	h := &harness{act: &fakeActivator{}, det: &fakeDetector{}, proc: &fakeProcessor{}, sink: &fakeSink{}}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	h.ctrl = newCommandController(h.act, h.det, h.proc, config, logger,
+	h.ctrl = newCommandController(h.act, h.det, h.proc, h.sink, config, logger,
 		func(t Transcript) { h.transcripts = append(h.transcripts, t) })
 	return h
 }
@@ -171,5 +205,88 @@ func TestDrainProcessesCommandInProgress(t *testing.T) {
 
 	if len(h.proc.got) != 1 || len(h.proc.got[0]) != 8 {
 		t.Fatalf("drain should transcribe the 8 pending bytes, got %v", h.proc.got)
+	}
+}
+
+// TestLookbackWhenSpeechIsContinuous: when the activation fires mid-speech
+// and speech continues, the audio just before (and including) the
+// activation chunk is prepended, so a word begun before a late detection is
+// not clipped.
+func TestLookbackWhenSpeechIsContinuous(t *testing.T) {
+	config := testCommandConfig()
+	config.lookbackBytes = 8
+	h := newHarness(config)
+
+	h.feed(c4('S', 0), c4('V', 1), c4('W', 2))             // "hey alfred wh-"
+	h.feed(c4('V', 3), c4('V', 4), c4('S', 5), c4('S', 6)) // "-at time is it"
+
+	if len(h.proc.got) != 1 {
+		t.Fatalf("Process called %d times, want 1", len(h.proc.got))
+	}
+	want := bytes.Join([][]byte{c4('V', 1), c4('W', 2), c4('V', 3), c4('V', 4), c4('S', 5), c4('S', 6)}, nil)
+	if !bytes.Equal(h.proc.got[0], want) {
+		t.Errorf("command = %q\nwant      %q", h.proc.got[0], want)
+	}
+}
+
+// TestNoLookbackAfterPause: when the speaker pauses after the wake word,
+// nothing from before the activation is added.
+func TestNoLookbackAfterPause(t *testing.T) {
+	config := testCommandConfig()
+	config.lookbackBytes = 8
+	h := newHarness(config)
+
+	h.feed(c4('V', 1), c4('W', 2), c4('S', 3)) // "hey alfred" ...
+	h.feed(c4('V', 4), c4('V', 5), c4('S', 6), c4('S', 7))
+
+	if len(h.proc.got) != 1 {
+		t.Fatalf("Process called %d times, want 1", len(h.proc.got))
+	}
+	want := bytes.Join([][]byte{c4('V', 4), c4('V', 5), c4('S', 6), c4('S', 7)}, nil)
+	if !bytes.Equal(h.proc.got[0], want) {
+		t.Errorf("command = %q\nwant      %q", h.proc.got[0], want)
+	}
+}
+
+// TestSinkReceivesWakeWordClipAndCommand: the wake word clip is the tail of
+// the listening utterance; the saved command is exactly what was
+// transcribed.
+func TestSinkReceivesWakeWordClipAndCommand(t *testing.T) {
+	h := newHarness(testCommandConfig())
+
+	h.feed(c4('V', 0), c4('V', 1), c4('W', 2))
+	h.feed(c4('V', 3), c4('S', 4), c4('S', 5))
+
+	if len(h.sink.wake) != 1 || h.sink.wakeScores[0] != 0.5 {
+		t.Fatalf("wake word clips = %d (scores %v), want 1 with score 0.5", len(h.sink.wake), h.sink.wakeScores)
+	}
+	if want := bytes.Join([][]byte{c4('V', 1), c4('W', 2)}, nil); !bytes.Equal(h.sink.wake[0], want) {
+		t.Errorf("wake word clip = %q, want the last 8 bytes %q", h.sink.wake[0], want)
+	}
+	if len(h.sink.commands) != 1 || !bytes.Equal(h.sink.commands[0], h.proc.got[0]) || h.sink.commandTexts[0] != "ok" {
+		t.Errorf("saved commands = %q %v, want the transcribed audio with text ok", h.sink.commands, h.sink.commandTexts)
+	}
+}
+
+// TestNearMiss: a listening utterance that scores above the near-miss
+// threshold without a detection is saved; one that stays below is not.
+func TestNearMiss(t *testing.T) {
+	h := newHarness(testCommandConfig())
+
+	h.feed(c4('V', 1), c4('V', 2), c4('S', 3), c4('S', 4)) // ordinary speech
+	if len(h.sink.near) != 0 {
+		t.Fatalf("ordinary speech saved as near miss")
+	}
+
+	h.feed(c4('V', 5), c4('N', 6), c4('S', 7), c4('S', 8)) // weak "hey alfred"
+	if len(h.sink.near) != 1 || h.sink.nearScores[0] != 0.01 {
+		t.Fatalf("near misses = %d (scores %v), want 1 with score 0.01", len(h.sink.near), h.sink.nearScores)
+	}
+	want := bytes.Join([][]byte{c4('V', 5), c4('N', 6), c4('S', 7), c4('S', 8)}, nil)
+	if !bytes.Equal(h.sink.near[0], want) {
+		t.Errorf("near miss = %q, want %q", h.sink.near[0], want)
+	}
+	if len(h.proc.got) != 0 {
+		t.Error("a near miss must not start a command")
 	}
 }

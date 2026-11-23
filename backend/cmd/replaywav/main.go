@@ -11,7 +11,6 @@ package main
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"flag"
 	"fmt"
@@ -22,6 +21,7 @@ import (
 	"github.com/sundbassen/alfred/component/command"
 	"github.com/sundbassen/alfred/internal/logging"
 	"github.com/sundbassen/alfred/internal/pipeline"
+	"github.com/sundbassen/alfred/internal/wav"
 )
 
 func main() {
@@ -29,6 +29,7 @@ func main() {
 	chunkSamples := flag.Int("chunk", 480, "samples per chunk fed to the pipeline")
 	speed := flag.Float64("speed", 1, "playback speed multiple of real time")
 	tailMs := flag.Int("tail", 2000, "milliseconds of silence appended so the final command is endpointed")
+	save := flag.String("save", "", "save wake word clips, near misses and commands under this directory")
 	flag.Parse()
 	if flag.NArg() != 1 {
 		fmt.Fprintln(os.Stderr, "usage: replaywav [flags] file.wav")
@@ -37,7 +38,7 @@ func main() {
 
 	logger := logging.New()
 
-	data, err := readWav(flag.Arg(0))
+	data, err := wav.Read(flag.Arg(0), pipeline.SampleRate)
 	if err != nil {
 		logger.Error("Failed to read wav", slog.Any("error", err))
 		os.Exit(1)
@@ -45,7 +46,7 @@ func main() {
 	data = append(data, make([]byte, *tailMs*pipeline.SampleRate/1000*2)...)
 
 	commands := pipeline.Commands()
-	service, cleanup, err := pipeline.New(pipeline.Options{VAD: *vad, Commands: commands}, logger)
+	service, cleanup, err := pipeline.New(pipeline.Options{VAD: *vad, Commands: commands, SaveDir: *save}, logger)
 	if err != nil {
 		logger.Error("Failed to create speech pipeline", slog.Any("error", err))
 		os.Exit(1)
@@ -100,45 +101,4 @@ func main() {
 	service.Stop()
 	fmt.Printf("replayed %.2f s of audio, %d transcript(s)\n",
 		float64(len(data))/float64(pipeline.SampleRate*2), transcripts)
-}
-
-// readWav returns the PCM data of a 16 kHz mono 16-bit wav file, walking the
-// RIFF chunks so files with extra chunks (LIST, fact) are handled.
-func readWav(path string) ([]byte, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	if len(raw) < 12 || string(raw[0:4]) != "RIFF" || string(raw[8:12]) != "WAVE" {
-		return nil, fmt.Errorf("%s: not a RIFF/WAVE file", path)
-	}
-
-	var formatOK bool
-	for off := 12; off+8 <= len(raw); {
-		id := string(raw[off : off+4])
-		size := int(binary.LittleEndian.Uint32(raw[off+4 : off+8]))
-		body := raw[off+8 : min(off+8+size, len(raw))]
-
-		switch id {
-		case "fmt ":
-			if len(body) < 16 {
-				return nil, fmt.Errorf("%s: short fmt chunk", path)
-			}
-			channels := binary.LittleEndian.Uint16(body[2:4])
-			rate := binary.LittleEndian.Uint32(body[4:8])
-			bits := binary.LittleEndian.Uint16(body[14:16])
-			if channels != 1 || rate != pipeline.SampleRate || bits != 16 {
-				return nil, fmt.Errorf("%s: need 16 kHz mono s16, got %d Hz, %d channels, %d bits",
-					path, rate, channels, bits)
-			}
-			formatOK = true
-		case "data":
-			if !formatOK {
-				return nil, fmt.Errorf("%s: data chunk before fmt chunk", path)
-			}
-			return body, nil
-		}
-		off += 8 + size + size%2
-	}
-	return nil, fmt.Errorf("%s: no data chunk", path)
 }

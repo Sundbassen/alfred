@@ -12,6 +12,7 @@ import (
 	"github.com/sundbassen/alfred/component/command/clock"
 	"github.com/sundbassen/alfred/component/debounce"
 	"github.com/sundbassen/alfred/component/debounce/silerovad"
+	"github.com/sundbassen/alfred/component/recorder"
 	"github.com/sundbassen/alfred/component/speech"
 	"github.com/sundbassen/alfred/component/speech/activate/onnxactivator"
 	"github.com/sundbassen/alfred/component/speech/activate/recordingactivator"
@@ -41,6 +42,12 @@ type Options struct {
 	// Commands, if set, biases transcription toward their phrases via
 	// whisper's initial prompt.
 	Commands *command.Registry
+	// SaveDir, if set, saves wake word clips, near misses and commands
+	// under this directory (see component/recorder).
+	SaveDir string
+	// NearMissThreshold: wake word score from which an undetected
+	// utterance is saved as a near miss (0 = default 0.005).
+	NearMissThreshold float32
 }
 
 // Commands returns the registry of everything Alfred can do. Register new
@@ -103,6 +110,17 @@ func New(opts Options, logger *slog.Logger) (speechtotext.SpeechToTextService, f
 	config := speechtotext.DefaultConfig(detector, speech.NewSpeechProcessor(processor, nil))
 	config.StreamingActivator = streaming
 	config.CommandSilenceMs = silenceMs
+	config.NearMissThreshold = opts.NearMissThreshold
+	if opts.SaveDir != "" {
+		rec, err := recorder.New(opts.SaveDir, SampleRate, logger)
+		if err != nil {
+			cleanup()
+			return nil, nil, err
+		}
+		config.Sink = rec
+		logger.Warn("Saving wake word clips, near misses and commands to disk",
+			slog.String("dir", opts.SaveDir))
+	}
 
 	service, err := speechtotext.NewSTTService(config, logger)
 	if err != nil {

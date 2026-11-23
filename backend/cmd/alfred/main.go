@@ -23,6 +23,10 @@ func main() {
 		"save every detected utterance as a wav file in .recordings (for collecting training samples)")
 	vad := flag.String("vad", "rms", "silence detector: rms (adaptive RMS) or silero (Silero VAD)")
 	ttsEngine := flag.String("tts", "espeak", "response voice: espeak (espeak-ng) or none (log only)")
+	save := flag.Bool("save", false,
+		"save wake word clips, near misses and commands as wav files in .recordings (for training and debugging)")
+	nearMiss := flag.Float64("near-miss", 0.005,
+		"with -save, wake word score from which an undetected utterance is saved as a near miss")
 	flag.Parse()
 
 	// Create logger
@@ -47,7 +51,13 @@ func main() {
 	// -record)
 	commands := pipeline.Commands()
 	sttService, cleanup, err := pipeline.New(
-		pipeline.Options{Record: *record, VAD: *vad, Commands: commands}, logger)
+		pipeline.Options{
+			Record:            *record,
+			VAD:               *vad,
+			Commands:          commands,
+			SaveDir:           saveDir(*save),
+			NearMissThreshold: float32(*nearMiss),
+		}, logger)
 	if err != nil {
 		logger.Error("Failed to create speech pipeline", slog.Any("error", err))
 		os.Exit(1)
@@ -157,4 +167,11 @@ func say(ctx context.Context, speaker tts.Speaker, logger *slog.Logger, text str
 	if err := speaker.Speak(ctx, text); err != nil && ctx.Err() == nil {
 		logger.Error("Failed to speak response", slog.Any("error", err))
 	}
+}
+
+func saveDir(save bool) string {
+	if save {
+		return ".recordings"
+	}
+	return ""
 }

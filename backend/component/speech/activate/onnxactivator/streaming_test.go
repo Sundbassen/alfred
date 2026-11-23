@@ -63,7 +63,7 @@ func feedScores(t *testing.T, a *streamingActivator, data []byte, chunkBytes int
 	a.scoreHook = func(s float32) { scores = append(scores, s) }
 	defer func() { a.scoreHook = nil }()
 	for off := 0; off < len(data); off += chunkBytes {
-		if _, err := a.Feed(t.Context(), data[off:min(off+chunkBytes, len(data))]); err != nil {
+		if _, _, err := a.Feed(t.Context(), data[off:min(off+chunkBytes, len(data))]); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -74,7 +74,7 @@ func TestStreamingSineDoesNotActivate(t *testing.T) {
 	a := newStreaming(t, 0.5)
 	data := sine(3)
 	for off := 0; off < len(data); off += 960 {
-		activated, err := a.Feed(t.Context(), data[off:min(off+960, len(data))])
+		_, activated, err := a.Feed(t.Context(), data[off:min(off+960, len(data))])
 		if err != nil {
 			t.Fatal(err)
 		}

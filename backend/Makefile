@@ -62,10 +62,11 @@ build:
 	go build -o alfred ./cmd/alfred/main.go
 	@echo "Build complete!"
 
-# Build and run
+# Build and run. SAVE=1 saves wake word clips, near misses and commands to
+# .recordings/{wakeword,commands} (review wake word clips with make review)
 run: build
 	@echo "Running alfred..."
-	./alfred
+	./alfred $(if $(SAVE),-save)
 
 # Build and run in recording mode: saves every detected utterance to
 # .recordings/ for wake word training (say the wake word repeatedly)

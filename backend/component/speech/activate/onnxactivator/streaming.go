@@ -122,11 +122,11 @@ func (a *streamingActivator) Reset() {
 	a.steps = 0
 }
 
-// Feed consumes the next chunk of continuous PCM16 audio and reports
-// whether the wake word was detected. On detection, any remaining samples
-// of the chunk are discarded; callers are expected to Reset before feeding
-// again.
-func (a *streamingActivator) Feed(ctx context.Context, chunk []byte) (bool, error) {
+// Feed consumes the next chunk of continuous PCM16 audio and reports the
+// chunk's highest score and whether the wake word was detected. On
+// detection, any remaining samples of the chunk are discarded; callers are
+// expected to Reset before feeding again.
+func (a *streamingActivator) Feed(ctx context.Context, chunk []byte) (float32, bool, error) {
 	a.pending = append(a.pending, pcm.ToFloat32(chunk)...)
 
 	consumed := 0
@@ -134,14 +134,16 @@ func (a *streamingActivator) Feed(ctx context.Context, chunk []byte) (bool, erro
 		a.pending = append(a.pending[:0], a.pending[consumed:]...)
 	}()
 
+	var peak float32
 	for len(a.pending)-consumed >= stepSamples {
 		step := a.pending[consumed : consumed+stepSamples]
 		consumed += stepSamples
 
 		score, err := a.processStep(step)
 		if err != nil {
-			return false, err
+			return peak, false, err
 		}
+		peak = max(peak, score)
 
 		a.logStats(score)
 		if a.scoreHook != nil {
@@ -153,11 +155,11 @@ func (a *streamingActivator) Feed(ctx context.Context, chunk []byte) (bool, erro
 				slog.Float64("score", float64(score)),
 				slog.Float64("threshold", float64(a.threshold)))
 			consumed = len(a.pending)
-			return true, nil
+			return score, true, nil
 		}
 	}
 
-	return false, nil
+	return peak, false, nil
 }
 
 // processStep runs one 1280-sample step through the pipeline and returns

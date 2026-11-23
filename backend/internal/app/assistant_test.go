@@ -49,3 +49,21 @@ func TestRespondHandlerError(t *testing.T) {
 		t.Errorf("Respond = %+v, %v; want nil and the wrapped SpokenError", reply, err)
 	}
 }
+
+type play struct {
+	Query string `slot:"query"`
+}
+
+func (play) IntentName() string { return "play" }
+
+func TestRespondFillsSlots(t *testing.T) {
+	r := assistant.NewRouter()
+	assistant.Handle(r, assistant.Spec{Phrases: []string{"play {query}"}},
+		func(_ context.Context, in play) (assistant.Response, error) {
+			return assistant.Response{Text: "Playing " + in.Query + "."}, nil
+		})
+	reply, err := NewAssistant(r).Respond(context.Background(), "Hey Alfred, play Daft Punk.")
+	if err != nil || reply.Text != "Playing daft punk." {
+		t.Errorf("Respond = %+v, %v", reply, err)
+	}
+}

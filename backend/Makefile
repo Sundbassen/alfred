@@ -1,4 +1,4 @@
-.PHONY: build all install clean prereqs run record review replay wakestats
+.PHONY: build all install clean prereqs run review replay wakestats
 
 # Whisper.cpp paths
 WHISPER_DIR := /tmp/whisper.cpp
@@ -67,12 +67,6 @@ build:
 run: build
 	@echo "Running alfred..."
 	./alfred $(if $(SAVE),-save)
-
-# Build and run in recording mode: saves every detected utterance to
-# .recordings/ for wake word training (say the wake word repeatedly)
-record: build
-	@echo "Running alfred in RECORDING mode..."
-	./alfred -record
 
 # Review collected wake word clips: plays each one and asks
 #   y = the wake word  -> .recordings/validated (--custom-samples)

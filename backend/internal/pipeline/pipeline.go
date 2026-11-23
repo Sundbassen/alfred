@@ -13,9 +13,7 @@ import (
 	"github.com/sundbassen/alfred/component/debounce"
 	"github.com/sundbassen/alfred/component/debounce/silerovad"
 	"github.com/sundbassen/alfred/component/recorder"
-	"github.com/sundbassen/alfred/component/speech"
 	"github.com/sundbassen/alfred/component/speech/activate/onnxactivator"
-	"github.com/sundbassen/alfred/component/speech/activate/recordingactivator"
 	"github.com/sundbassen/alfred/component/speech/process/whisperprocessor"
 	"github.com/sundbassen/alfred/component/speechtotext"
 )
@@ -26,17 +24,12 @@ const (
 	onnxRuntimeLib = "/tmp/onnxruntime/lib/libonnxruntime.so"
 	whisperModel   = "models/ggml-base.en.bin"
 	sileroModel    = "models/silero/silero_vad.onnx"
-	recordingsDir  = ".recordings"
 
-	// Silence that ends a command (or, in record mode, an utterance).
+	// Silence that ends a command.
 	silenceMs = 600
 )
 
 type Options struct {
-	// Record selects the legacy utterance mode: every silence-delimited
-	// utterance is scored by the batch wake word activator and saved as a
-	// wav file for training. No commands are transcribed.
-	Record bool
 	// VAD selects the silence detector: "rms" (adaptive RMS) or "silero".
 	VAD string
 	// Commands, if set, biases transcription toward their phrases via
@@ -76,10 +69,6 @@ func New(opts Options, logger *slog.Logger) (speechtotext.SpeechToTextService, f
 		Logger:             logger,
 	}
 
-	if opts.Record {
-		return newRecordMode(activatorConfig, detector, logger)
-	}
-
 	streaming := onnxactivator.NewStreaming(activatorConfig)
 	if streaming == nil {
 		return nil, nil, fmt.Errorf("failed to create streaming wake word activator")
@@ -107,8 +96,7 @@ func New(opts Options, logger *slog.Logger) (speechtotext.SpeechToTextService, f
 		return nil, nil, fmt.Errorf("failed to create whisper processor")
 	}
 
-	config := speechtotext.DefaultConfig(detector, speech.NewSpeechProcessor(processor, nil))
-	config.StreamingActivator = streaming
+	config := speechtotext.DefaultConfig(detector, processor, streaming)
 	config.CommandSilenceMs = silenceMs
 	config.NearMissThreshold = opts.NearMissThreshold
 	if opts.SaveDir != "" {
@@ -133,37 +121,6 @@ func New(opts Options, logger *slog.Logger) (speechtotext.SpeechToTextService, f
 		return nil, nil, err
 	}
 	return service, cleanup, nil
-}
-
-func newRecordMode(activatorConfig onnxactivator.Config, detector debounce.SilenceDetector,
-	logger *slog.Logger,
-) (speechtotext.SpeechToTextService, func(), error) {
-	activator := onnxactivator.New(activatorConfig)
-	if activator == nil {
-		return nil, nil, fmt.Errorf("failed to create wake word activator")
-	}
-
-	// Save every scored utterance as a wav file for wake word training
-	// (--custom-samples)
-	activator = recordingactivator.New(recordingactivator.Config{
-		Inner:      activator,
-		Dir:        recordingsDir,
-		SampleRate: SampleRate,
-		Logger:     logger,
-	})
-	if activator == nil {
-		return nil, nil, fmt.Errorf("failed to create recording activator")
-	}
-
-	config := speechtotext.DefaultConfig(detector,
-		speech.NewSpeechProcessor(speech.NewPlaceholderProcessor(), activator))
-	config.SilenceDuration = silenceMs
-
-	service, err := speechtotext.NewSTTService(config, logger)
-	if err != nil {
-		return nil, nil, err
-	}
-	return service, func() {}, nil
 }
 
 func newSilenceDetector(vad string, logger *slog.Logger) (debounce.SilenceDetector, error) {

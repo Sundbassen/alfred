@@ -19,8 +19,6 @@ import (
 )
 
 func main() {
-	record := flag.Bool("record", false,
-		"save every detected utterance as a wav file in .recordings (for collecting training samples)")
 	vad := flag.String("vad", "rms", "silence detector: rms (adaptive RMS) or silero (Silero VAD)")
 	ttsEngine := flag.String("tts", "espeak", "response voice: espeak (espeak-ng) or none (log only)")
 	save := flag.Bool("save", false,
@@ -47,12 +45,10 @@ func main() {
 	}
 
 	// Create the speech pipeline: streaming wake word detection followed by
-	// command endpointing and transcription (or utterance recording with
-	// -record)
+	// command endpointing and transcription
 	commands := pipeline.Commands()
 	sttService, cleanup, err := pipeline.New(
 		pipeline.Options{
-			Record:            *record,
 			VAD:               *vad,
 			Commands:          commands,
 			SaveDir:           saveDir(*save),

@@ -2,7 +2,7 @@
 //
 //	<time>_hit_<score>.wav   a detection (-save)
 //	<time>_near_<score>.wav  a near miss: scored high, no detection (-save)
-//	<time>_hit.wav           legacy -record files, scored as a whole utterance
+//	<time>_hit.wav           files from the removed -record mode (no score)
 //	<time>_miss.wav
 //
 // The score in the name survives review (files are moved, not renamed), so
@@ -25,14 +25,14 @@ type Kind string
 const (
 	Hit  Kind = "hit"
 	Near Kind = "near"
-	Miss Kind = "miss" // legacy -record only
+	Miss Kind = "miss" // removed -record mode only
 )
 
 // Clip is the information in a clip's file name.
 type Clip struct {
 	Kind     Kind
 	Score    float64
-	HasScore bool // false for legacy -record files
+	HasScore bool // false for files from the removed -record mode
 }
 
 // Name returns the file name for a clip captured at t.

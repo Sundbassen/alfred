@@ -7,8 +7,9 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
+
+	"github.com/sundbassen/alfred/internal/wav"
 )
 
 func testConfig(t *testing.T, threshold float32) Config {
@@ -110,39 +111,41 @@ func TestStreamingChunkSizeInvariance(t *testing.T) {
 	}
 }
 
-// TestStreamingMatchesBatchOnRecordings compares the streaming maximum
-// score against the batch activator on real wake word recordings, and
-// checks that recordings the batch model detects are detected while
-// streaming too.
-func TestStreamingMatchesBatchOnRecordings(t *testing.T) {
-	files, _ := filepath.Glob("../../../../.recordings/validated/*_hit.wav")
+// TestStreamingDetectsValidatedRecordings streams real wake word
+// recordings (reviewed hits in .recordings/validated) and checks that each
+// one scores at least half the detection threshold. The margin is the one
+// the former batch-vs-streaming comparison allowed: many of these files
+// were labeled "hit" by the removed batch scorer, which scores whole
+// utterances slightly differently. Recordings below the threshold itself
+// are logged; they are real misses for the live system (see make
+// wakestats).
+func TestStreamingDetectsValidatedRecordings(t *testing.T) {
+	files, _ := filepath.Glob("../../../../.recordings/validated/*_hit*.wav")
 	if len(files) == 0 {
 		t.Skip("no validated hit recordings in .recordings/validated")
 	}
 	const threshold = 0.03
 	stream := newStreaming(t, 2)
-	batch := New(testConfig(t, threshold)).(*activator)
 
 	for _, file := range files {
+		// Silence on both sides: the streaming path needs warmup steps
+		// before it scores, and room after the word for the score to peak.
 		data := readWav(t, file)
-		// Silence padding on both sides: the batch path pads with its
-		// buffer initialization, the streaming path needs warmup steps.
 		padded := append(append(make([]byte, 16000), data...), make([]byte, 16000)...)
 
-		batchScore, err := batch.score(data)
-		if err != nil {
-			t.Fatal(err)
-		}
 		stream.Reset()
 		var streamMax float32
 		for _, s := range feedScores(t, stream, padded, 960) {
 			streamMax = max(streamMax, s)
 		}
 
-		t.Logf("%s: batch %.4f, streaming %.4f", filepath.Base(file), batchScore, streamMax)
-		if batchScore >= threshold && streamMax < threshold*0.5 {
-			t.Errorf("%s: batch detects (%.4f) but streaming max is only %.4f",
-				filepath.Base(file), batchScore, streamMax)
+		t.Logf("%s: streaming max %.4f", filepath.Base(file), streamMax)
+		switch {
+		case streamMax < threshold*0.5:
+			t.Errorf("%s: validated wake word scores only %.4f streaming (threshold %.2f)",
+				filepath.Base(file), streamMax, threshold)
+		case streamMax < threshold:
+			t.Logf("%s: below the threshold, would be missed live", filepath.Base(file))
 		}
 	}
 }
@@ -157,16 +160,12 @@ func wakeWordAudio(t *testing.T) []byte {
 	return sine(3)
 }
 
-// readWav returns the PCM data of a 16 kHz mono s16 wav file written by
-// recordingactivator (fixed 44-byte header).
+// readWav returns the PCM data of a 16 kHz mono s16 wav file.
 func readWav(t *testing.T, path string) []byte {
 	t.Helper()
-	data, err := os.ReadFile(path)
+	data, err := wav.Read(path, 16000)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(data) < 44 || !strings.HasPrefix(string(data), "RIFF") {
-		t.Fatalf("%s is not a wav file", path)
-	}
-	return data[44:]
+	return data
 }

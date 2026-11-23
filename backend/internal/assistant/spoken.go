@@ -21,6 +21,12 @@ func SpokenText(err error) string {
 		return spoken.Text
 	}
 	switch {
+	case errors.Is(err, fault.ErrUnauthorized):
+		return "I need you to log in to that service again."
+	case errors.Is(err, fault.ErrPermission):
+		return "Sorry, that account isn't allowed to do that."
+	case errors.Is(err, fault.ErrRateLimited):
+		return "Sorry, I'm asking too often. Try again in a minute."
 	case errors.Is(err, fault.ErrServiceUnavailable):
 		return "Sorry, I can't reach that right now."
 	case errors.Is(err, fault.ErrTimeout), errors.Is(err, context.DeadlineExceeded):

@@ -1,4 +1,4 @@
-.PHONY: build all install clean prereqs run record review replay
+.PHONY: build all install clean prereqs run record review replay wakestats
 
 # Whisper.cpp paths
 WHISPER_DIR := /tmp/whisper.cpp
@@ -74,10 +74,17 @@ record: build
 	@echo "Running alfred in RECORDING mode..."
 	./alfred -record
 
-# Review collected recordings: plays each one and asks keep/delete.
-# Kept files move to .recordings/validated for --custom-samples training.
+# Review collected wake word clips: plays each one and asks
+#   y = the wake word  -> .recordings/validated (--custom-samples)
+#   x = not it         -> .recordings/negative  (--custom-negatives)
+#   n = delete
 review:
 	@go run ./cmd/reviewrecordings
+
+# Wake word detection and false-trigger rates per threshold, from reviewed
+# clips and listening time:  make wakestats [ATTEMPTS=40]
+wakestats:
+	@go run ./cmd/wakestats $(if $(ATTEMPTS),-attempts $(ATTEMPTS))
 
 # Clean build artifacts
 clean:

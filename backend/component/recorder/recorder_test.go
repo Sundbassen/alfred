@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ func TestRecorderWritesFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.now = func() time.Time { return time.Date(2026, 11, 23, 18, 50, 33, 368_000_000, time.Local) }
+	r.started = r.now()
 
 	audio := []byte{1, 0, 2, 0}
 	r.WakeWord(audio, 0.0573)
@@ -39,6 +41,16 @@ func TestRecorderWritesFiles(t *testing.T) {
 		if !bytes.Equal(got, audio) {
 			t.Errorf("%s: audio = %v, want %v", path, got, audio)
 		}
+	}
+
+	r.now = func() time.Time { return time.Date(2026, 11, 23, 19, 50, 33, 368_000_000, time.Local) }
+	r.Close()
+	sessions, err := os.ReadFile(filepath.Join(dir, "sessions.tsv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fields := strings.Split(strings.TrimSpace(string(sessions)), "\t"); len(fields) != 3 || fields[2] != "3600.0" {
+		t.Errorf("sessions.tsv = %q, want start, end, 3600.0", sessions)
 	}
 
 	index, err := os.ReadFile(filepath.Join(dir, "commands/index.tsv"))

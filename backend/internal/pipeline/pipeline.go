@@ -118,6 +118,11 @@ func New(opts Options, logger *slog.Logger) (speechtotext.SpeechToTextService, f
 			return nil, nil, err
 		}
 		config.Sink = rec
+		modelCleanup := cleanup
+		cleanup = func() {
+			rec.Close()
+			modelCleanup()
+		}
 		logger.Warn("Saving wake word clips, near misses and commands to disk",
 			slog.String("dir", opts.SaveDir))
 	}

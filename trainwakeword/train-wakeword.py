@@ -17,6 +17,9 @@ Usage:
     ./train_wakeword.py --phrase "hey alfred" --output ./models
     ./train_wakeword.py --phrase "hey alfred" --output ./models --samples 100000
     ./train_wakeword.py --phrase "hey alfred" --output ./models --custom-samples ./my_recordings
+    ./train_wakeword.py --phrase "hey alfred" --output ./models \
+        --custom-samples ../backend/.recordings/validated \
+        --custom-negatives ../backend/.recordings/negative
     ./train_wakeword.py --phrase "hey alfred" --output ./models --max-negative-weight 500
 """
 
@@ -26,6 +29,7 @@ import os
 import shutil
 import subprocess
 import sys
+import wave
 from pathlib import Path
 from typing import Optional
 
@@ -494,6 +498,95 @@ def run_training_stage(train_script: Path, config_path: Path, flag: str) -> None
 CUSTOM_SAMPLE_DUPLICATION = 20
 
 
+# Longest custom positive kept. openwakeword fits every clip to total_length
+# (at least 2 s) and keeps either the first or the last window of a longer
+# clip at random (openwakeword.data.create_fixed_size_clip). Saved hit clips
+# are up to 3 s with the wake word at the end, so the first window could cut
+# the wake word off.
+MAX_POSITIVE_SECONDS = 2.0
+
+
+def write_trimmed_positive(src: Path, dst: Path, max_seconds: float = MAX_POSITIVE_SECONDS) -> None:
+    """
+    Copy a 16-bit mono wav, trimmed so the wake word survives openwakeword's
+    fixed-length windowing: clips longer than max_seconds are cut at the end
+    of the speech (plus 100 ms) and then to their last max_seconds.
+
+    Speech end: the last 20 ms frame whose RMS is at least 10% of the
+    loudest frame's.
+    """
+    import numpy as np
+
+    with wave.open(str(src), "rb") as w:
+        params = w.getparams()
+        audio = np.frombuffer(w.readframes(params.nframes), dtype=np.int16)
+    rate = params.framerate
+    max_samples = int(max_seconds * rate)
+
+    if params.sampwidth == 2 and params.nchannels == 1 and len(audio) > max_samples:
+        frame = rate // 50
+        n_frames = len(audio) // frame
+        if n_frames > 0:
+            frames = audio[: n_frames * frame].astype(np.float64).reshape(n_frames, frame)
+            rms = np.sqrt((frames ** 2).mean(axis=1))
+            loud = np.nonzero(rms >= 0.1 * rms.max())[0]
+            if len(loud) > 0:
+                end = min(len(audio), (loud[-1] + 1) * frame + rate // 10)
+                audio = audio[:end]
+        audio = audio[-max_samples:]
+
+    with wave.open(str(dst), "wb") as w:
+        w.setparams(params)
+        w.writeframes(audio.tobytes())
+
+
+def install_custom_negatives(
+    custom_negatives: list[Path],
+    output_dir: Path,
+    safe_name: str,
+) -> None:
+    """
+    Copy user-recorded clips that are NOT the wake word (false triggers and
+    near misses marked x in backend's make review) into the generated
+    negative clip directories, mirroring install_custom_samples.
+
+    openwakeword's train.py globs *.wav from negative_train/negative_test
+    (its adversarial negatives) and turns them into the adversarial_negative
+    feature file, so real false triggers are trained against directly.
+    Clips are not trimmed: any window of a non-wake utterance is a negative.
+
+    Args:
+        custom_negatives: User-recorded .wav files (16 kHz mono).
+        output_dir:       Training output directory.
+        safe_name:        Model name (phrase with underscores).
+    """
+    train_dir = output_dir / safe_name / "negative_train"
+    test_dir = output_dir / safe_name / "negative_test"
+    train_dir.mkdir(parents=True, exist_ok=True)
+    test_dir.mkdir(parents=True, exist_ok=True)
+
+    n_test = max(1, len(custom_negatives) // 10) if len(custom_negatives) > 1 else 0
+    test_samples = custom_negatives[:n_test]
+    train_samples = custom_negatives[n_test:]
+
+    for i, sample in enumerate(test_samples):
+        shutil.copy(sample, test_dir / f"custom_negative_{i:04d}.wav")
+
+    for i, sample in enumerate(train_samples):
+        for dup in range(CUSTOM_SAMPLE_DUPLICATION):
+            shutil.copy(sample, train_dir / f"custom_negative_{i:04d}_dup{dup:02d}.wav")
+
+    # Force feature recomputation, as for the positives.
+    for name in ["negative_features_train.npy", "negative_features_test.npy"]:
+        feature_file = output_dir / safe_name / name
+        if feature_file.exists():
+            feature_file.unlink()
+            log.info("Deleted %s to force feature recomputation", feature_file)
+
+    log.info("Installed custom negatives: %d train recordings x%d copies, %d test recordings",
+             len(train_samples), CUSTOM_SAMPLE_DUPLICATION, len(test_samples))
+
+
 def install_custom_samples(
     custom_samples: list[Path],
     output_dir: Path,
@@ -527,11 +620,13 @@ def install_custom_samples(
     train_samples = custom_samples[n_test:]
 
     for i, sample in enumerate(test_samples):
-        shutil.copy(sample, test_dir / f"custom_{i:04d}.wav")
+        write_trimmed_positive(sample, test_dir / f"custom_{i:04d}.wav")
 
     for i, sample in enumerate(train_samples):
-        for dup in range(CUSTOM_SAMPLE_DUPLICATION):
-            shutil.copy(sample, train_dir / f"custom_{i:04d}_dup{dup:02d}.wav")
+        first = train_dir / f"custom_{i:04d}_dup00.wav"
+        write_trimmed_positive(sample, first)
+        for dup in range(1, CUSTOM_SAMPLE_DUPLICATION):
+            shutil.copy(first, train_dir / f"custom_{i:04d}_dup{dup:02d}.wav")
 
     # Force feature recomputation: the augmentation stage skips work when
     # these files already exist, which would silently ignore the new clips.
@@ -705,6 +800,14 @@ NOTES
         metavar="DIR",
         help="Directory of your own .wav recordings to improve accuracy (optional)",
     )
+    parser.add_argument(
+        "--custom-negatives",
+        type=Path,
+        default=None,
+        metavar="DIR",
+        help="Directory of your own .wav clips that are NOT the wake word, e.g. false "
+             "triggers marked x in make review (optional)",
+    )
 
     parser.add_argument(
         "--piper-gen",
@@ -763,6 +866,7 @@ def main() -> None:
     log.info("Output:          %s", out_dir)
     log.info("Samples:         %d", args.samples)
     log.info("Custom samples:  %s", args.custom_samples or "none")
+    log.info("Custom negatives: %s", args.custom_negatives or "none")
     log.info("Piper gen dir:   %s", args.piper_gen)
     log.info("=" * 50)
 
@@ -779,6 +883,14 @@ def main() -> None:
         log.info("Found %d custom voice samples", len(custom_samples))
         if len(custom_samples) < 10:
             log.warning("Only %d custom samples. 50-100 recommended.", len(custom_samples))
+
+    custom_negatives: Optional[list[Path]] = None
+    if args.custom_negatives:
+        custom_negatives = sorted(args.custom_negatives.glob("*.wav"))
+        if not custom_negatives:
+            log.error("No .wav files found in: %s", args.custom_negatives)
+            sys.exit(1)
+        log.info("Found %d custom negative samples", len(custom_negatives))
 
     # Locate openwakeword/train.py (installed as a package)
     import openwakeword
@@ -826,10 +938,12 @@ def main() -> None:
         log.info("[3/5] Generating synthetic samples...")
         run_training_stage(oww_train_script, config_path, "--generate_clips")
 
-        # Add user-recorded samples to the positive clip sets
+        # Add user-recorded samples to the positive and negative clip sets
+        safe_name = phrase.replace(" ", "_").lower()
         if custom_samples:
-            safe_name = phrase.replace(" ", "_").lower()
             install_custom_samples(custom_samples, out_dir, safe_name)
+        if custom_negatives:
+            install_custom_negatives(custom_negatives, out_dir, safe_name)
 
         # Stage 2: augment clips and extract features
         if not args.skip_augmentation:

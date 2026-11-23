@@ -5,6 +5,7 @@
 //	<dir>/wakeword/<time>_near_<score>.wav  near misses (scored high, no detection)
 //	<dir>/commands/<time>.wav               command audio as transcribed
 //	<dir>/commands/index.tsv                file, confidence, transcript per command
+//	<dir>/sessions.tsv                      start, end, seconds per run (listening time)
 //
 // Wake word clips are reviewed with cmd/reviewrecordings and used for
 // training; commands are for replaying (make replay) and measuring
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	"github.com/sundbassen/alfred/component/speechtotext"
+	"github.com/sundbassen/alfred/internal/wakeclip"
 	"github.com/sundbassen/alfred/internal/wav"
 )
 
@@ -28,6 +30,8 @@ const timeFormat = "20060102-150405.000"
 // Recorder implements speechtotext.AudioSink by writing wav files. Write
 // errors are logged, never fatal.
 type Recorder struct {
+	dir        string
+	started    time.Time
 	wakeDir    string
 	commandDir string
 	sampleRate int
@@ -40,6 +44,7 @@ var _ speechtotext.AudioSink = (*Recorder)(nil)
 // New creates the output directories under dir.
 func New(dir string, sampleRate int, logger *slog.Logger) (*Recorder, error) {
 	r := &Recorder{
+		dir:        dir,
 		wakeDir:    filepath.Join(dir, "wakeword"),
 		commandDir: filepath.Join(dir, "commands"),
 		sampleRate: sampleRate,
@@ -51,15 +56,28 @@ func New(dir string, sampleRate int, logger *slog.Logger) (*Recorder, error) {
 			return nil, fmt.Errorf("create recordings directory: %w", err)
 		}
 	}
+	r.started = r.now()
 	return r, nil
 }
 
+// Close appends this run's listening time to sessions.tsv, the denominator
+// for false triggers per hour (cmd/wakestats).
+func (r *Recorder) Close() {
+	end := r.now()
+	line := fmt.Sprintf("%s\t%s\t%.1f\n", r.started.Format(time.RFC3339), end.Format(time.RFC3339),
+		end.Sub(r.started).Seconds())
+	path := filepath.Join(r.dir, "sessions.tsv")
+	if err := appendLine(path, line); err != nil {
+		r.logger.Error("Failed to record session", slog.String("path", path), slog.Any("error", err))
+	}
+}
+
 func (r *Recorder) WakeWord(audio []byte, score float32) {
-	r.save(filepath.Join(r.wakeDir, fmt.Sprintf("%s_hit_%.3f.wav", r.now().Format(timeFormat), score)), audio)
+	r.save(filepath.Join(r.wakeDir, wakeclip.Name(r.now(), wakeclip.Hit, score)), audio)
 }
 
 func (r *Recorder) NearMiss(audio []byte, score float32) {
-	r.save(filepath.Join(r.wakeDir, fmt.Sprintf("%s_near_%.3f.wav", r.now().Format(timeFormat), score)), audio)
+	r.save(filepath.Join(r.wakeDir, wakeclip.Name(r.now(), wakeclip.Near, score)), audio)
 }
 
 func (r *Recorder) Command(audio []byte, transcript speechtotext.Transcript) {

@@ -1,8 +1,13 @@
 // reviewrecordings plays each wake word recording in .recordings (from
-// -record) and .recordings/wakeword (from -save) and asks whether to keep
-// it. Kept files move to .recordings/validated (the
-// directory to pass to training via --custom-samples); rejected files are
-// deleted.
+// -record) and .recordings/wakeword (from -save) and asks what it is:
+//
+//	y  the wake word: positive sample -> .recordings/validated
+//	   (train-wakeword.py --custom-samples)
+//	x  not the wake word: negative sample -> .recordings/negative
+//	   (train-wakeword.py --custom-negatives); keep false triggers this way
+//	n  unusable (noise, clipped): delete
+//
+// Files keep their names, so cmd/wakestats can relate labels to scores.
 package main
 
 import (
@@ -13,12 +18,15 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/sundbassen/alfred/internal/wakeclip"
 )
 
 const (
 	recordingsDir = ".recordings"
 	wakewordDir   = ".recordings/wakeword"
 	validatedDir  = ".recordings/validated"
+	negativeDir   = ".recordings/negative"
 )
 
 func play(path string) error {
@@ -45,25 +53,29 @@ func main() {
 		return
 	}
 
-	if err := os.MkdirAll(validatedDir, 0o755); err != nil {
-		fmt.Println("failed to create validated directory:", err)
-		os.Exit(1)
+	for _, dir := range []string{validatedDir, negativeDir} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			fmt.Println("failed to create directory:", err)
+			os.Exit(1)
+		}
 	}
 
 	fmt.Printf("reviewing %d recordings\n", len(files))
+	fmt.Println("y = it's the wake word (positive)   x = not the wake word (negative, e.g. a false trigger)")
+	fmt.Println("n = delete (noise, unusable)        r = replay   q = quit")
 
 	reader := bufio.NewReader(os.Stdin)
-	kept, deleted := 0, 0
+	positive, negative, deleted := 0, 0, 0
 
 review:
 	for i, file := range files {
-		fmt.Printf("\n[%d/%d] %s\n", i+1, len(files), filepath.Base(file))
+		fmt.Printf("\n[%d/%d] %s%s\n", i+1, len(files), filepath.Base(file), describe(file))
 		if err := play(file); err != nil {
 			fmt.Println("playback failed:", err)
 		}
 
 		for {
-			fmt.Print("keep? [y=keep / n=delete / r=replay / q=quit]: ")
+			fmt.Print("wake word? [y / x / n / r / q]: ")
 			line, err := reader.ReadString('\n')
 			if err != nil {
 				break review
@@ -71,12 +83,11 @@ review:
 
 			switch strings.ToLower(strings.TrimSpace(line)) {
 			case "y":
-				dest := filepath.Join(validatedDir, filepath.Base(file))
-				if err := os.Rename(file, dest); err != nil {
-					fmt.Println("failed to move file:", err)
-					os.Exit(1)
-				}
-				kept++
+				move(file, validatedDir)
+				positive++
+			case "x":
+				move(file, negativeDir)
+				negative++
 			case "n":
 				if err := os.Remove(file); err != nil {
 					fmt.Println("failed to delete file:", err)
@@ -97,6 +108,30 @@ review:
 		}
 	}
 
-	fmt.Printf("\ndone: %d kept (moved to %s), %d deleted, %d left unreviewed\n",
-		kept, validatedDir, deleted, len(files)-kept-deleted)
+	fmt.Printf("\ndone: %d positive (%s), %d negative (%s), %d deleted, %d left unreviewed\n",
+		positive, validatedDir, negative, negativeDir, deleted, len(files)-positive-negative-deleted)
+}
+
+// describe explains a clip's file name, e.g. " (near miss, score 0.012)".
+func describe(file string) string {
+	clip, ok := wakeclip.Parse(file)
+	if !ok {
+		return ""
+	}
+	kind := map[wakeclip.Kind]string{
+		wakeclip.Hit:  "detected",
+		wakeclip.Near: "near miss",
+		wakeclip.Miss: "not detected",
+	}[clip.Kind]
+	if !clip.HasScore {
+		return fmt.Sprintf(" (%s)", kind)
+	}
+	return fmt.Sprintf(" (%s, score %.3f)", kind, clip.Score)
+}
+
+func move(file, dir string) {
+	if err := os.Rename(file, filepath.Join(dir, filepath.Base(file))); err != nil {
+		fmt.Println("failed to move file:", err)
+		os.Exit(1)
+	}
 }

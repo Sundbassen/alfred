@@ -11,7 +11,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -19,7 +18,6 @@ import (
 	"time"
 
 	"github.com/sundbassen/alfred/internal/app"
-	"github.com/sundbassen/alfred/internal/assistant"
 	"github.com/sundbassen/alfred/internal/platform/logging"
 	"github.com/sundbassen/alfred/internal/platform/wav"
 )
@@ -47,8 +45,8 @@ func main() {
 	}
 	data = append(data, make([]byte, *tailMs*app.SampleRate/1000*2)...)
 
-	commands := app.Commands()
-	service, cleanup, err := app.New(app.Options{VAD: *vad, Commands: commands, SaveDir: *save, Verbose: *verbose}, logger)
+	asst := app.NewAssistant(app.Router())
+	service, cleanup, err := app.New(app.Options{VAD: *vad, Prompt: asst.Prompt(), SaveDir: *save, Verbose: *verbose}, logger)
 	if err != nil {
 		logger.Error("Failed to create speech pipeline", slog.Any("error", err))
 		os.Exit(1)
@@ -70,18 +68,16 @@ func main() {
 			transcripts++
 			fmt.Printf("TRANSCRIPT: %q (confidence %.2f)\n", transcript.Text, transcript.Confidence)
 
-			resp, match, err := commands.Handle(ctx, transcript.Text)
+			reply, err := asst.Respond(ctx, transcript.Text)
 			switch {
-			case errors.Is(err, assistant.ErrNoMatch):
-				if match.Command != nil {
-					fmt.Printf("NO MATCH (best: %s %.2f)\n", match.Command.ID(), match.Score)
-				} else {
-					fmt.Println("NO MATCH")
-				}
 			case err != nil:
-				fmt.Printf("COMMAND FAILED: %v\n", err)
+				fmt.Printf("COMMAND FAILED [%s]: %v (says %q)\n", reply.Match.Name, err, reply.Text)
+			case !reply.Matched && reply.Match.Name != "":
+				fmt.Printf("NO MATCH (best: %s %.2f)\n", reply.Match.Name, reply.Match.Score)
+			case !reply.Matched:
+				fmt.Println("NO MATCH")
 			default:
-				fmt.Printf("RESPONSE: [%s %.2f] %q\n", match.Command.ID(), match.Score, resp.Text)
+				fmt.Printf("RESPONSE: [%s %.2f] %q\n", reply.Match.Name, reply.Match.Score, reply.Text)
 			}
 		}
 	}()

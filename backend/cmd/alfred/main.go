@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -11,7 +10,6 @@ import (
 	"syscall"
 
 	"github.com/sundbassen/alfred/internal/app"
-	"github.com/sundbassen/alfred/internal/assistant"
 	"github.com/sundbassen/alfred/internal/platform/logging"
 	"github.com/sundbassen/alfred/internal/voice/mic"
 	"github.com/sundbassen/alfred/internal/voice/tts"
@@ -48,11 +46,11 @@ func main() {
 
 	// Create the speech pipeline: streaming wake word detection followed by
 	// command endpointing and transcription
-	commands := app.Commands()
+	asst := app.NewAssistant(app.Router())
 	sttService, cleanup, err := app.New(
 		app.Options{
 			VAD:               *vad,
-			Commands:          commands,
+			Prompt:            asst.Prompt(),
 			Verbose:           *verbose,
 			SaveDir:           saveDir(*save),
 			NearMissThreshold: float32(*nearMiss),
@@ -108,27 +106,25 @@ func main() {
 				slog.String("text", transcript.Text),
 				slog.Float64("confidence", transcript.Confidence))
 
-			resp, match, err := commands.Handle(ctx, transcript.Text)
+			reply, err := asst.Respond(ctx, transcript.Text)
 			switch {
-			case errors.Is(err, assistant.ErrNoMatch):
-				// TODO: fall back to the cloud LLM (#2)
-				attrs := []any{slog.String("text", transcript.Text)}
-				if match.Command != nil {
-					attrs = append(attrs,
-						slog.String("best_command", match.Command.ID()),
-						slog.Float64("best_score", match.Score))
-				}
-				logger.Info("No command matched", attrs...)
-				say(ctx, speaker, logger, "Sorry, I didn't catch that.")
 			case err != nil:
-				logger.Error("Command failed", slog.Any("error", err))
+				logger.Error("Command failed",
+					slog.String("intent", reply.Match.Name), slog.Any("error", err))
+			case !reply.Matched:
+				// TODO: fall back to the cloud LLM (#2)
+				logger.Info("No command matched", slog.String("text", transcript.Text),
+					slog.String("best_intent", reply.Match.Name),
+					slog.Float64("best_score", reply.Match.Score))
 			default:
 				logger.Info("🗣️ RESPONSE",
-					slog.String("command", match.Command.ID()),
-					slog.String("phrase", match.Phrase),
-					slog.Float64("score", match.Score),
-					slog.String("text", resp.Text))
-				say(ctx, speaker, logger, resp.Text)
+					slog.String("intent", reply.Match.Name),
+					slog.String("phrase", reply.Match.Phrase),
+					slog.Float64("score", reply.Match.Score),
+					slog.String("text", reply.Text))
+			}
+			if reply.Text != "" {
+				say(ctx, speaker, logger, reply.Text)
 			}
 		}
 		logger.Info("Transcript channel closed")

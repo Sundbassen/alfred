@@ -6,6 +6,7 @@
 package match
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
@@ -23,27 +24,20 @@ const DefaultThreshold = 0.75
 // threshold. Best is the closest candidate (zero if there was none), for
 // logging near misses. It is a fault.ErrNotFound (errors.Is).
 type NoMatchError struct {
-	Best Result
+	Best assistant.Recognition
 }
 
 func (e *NoMatchError) Error() string {
-	if e.Best.Name == "" {
+	if e.Best.Intent == "" {
 		return "no intent matched"
 	}
-	return fmt.Sprintf("no intent matched (best: %s %.2f)", e.Best.Name, e.Best.Score)
+	return fmt.Sprintf("no intent matched (best: %s %.2f)", e.Best.Intent, e.Best.Score)
 }
 
 func (e *NoMatchError) Unwrap() error { return fault.ErrNotFound }
 
-// Result is the best phrase match for a transcript.
-type Result struct {
-	Name   string  // intent name; empty when there are no phrases or the transcript has no words
-	Phrase string  // the phrase that matched best
-	Score  float64 // 0..1; 1 is an exact or template match after normalization
-	// Slots holds the words each slot of a template captured (normalized),
-	// for assistant.Fill; nil for plain phrases.
-	Slots map[string]string
-}
+// By is the Recognition.By of the template recognizer.
+const By = "templates"
 
 // Matcher recognizes intents by matching transcripts against their example
 // phrases: normalization, then an exact match or token overlap (Dice).
@@ -204,42 +198,43 @@ var questionWords = map[string]bool{
 }
 
 // Recognize returns the intent whose phrase best matches the transcript,
-// or a *NoMatchError if no phrase scores at least the threshold.
-func (m *Matcher) Recognize(transcript string) (Result, error) {
+// or a *NoMatchError if no phrase scores at least the threshold. It is
+// pure computation; ctx is for the recognizer interface.
+func (m *Matcher) Recognize(_ context.Context, transcript string) (assistant.Recognition, error) {
 	normalized := normalize(transcript)
 	tokens := strings.Fields(normalized)
 	if len(tokens) == 0 {
-		return Result{}, errors.WithStack(&NoMatchError{})
+		return assistant.Recognition{}, errors.WithStack(&NoMatchError{})
 	}
 
 	// Among full matches (score 1) the most specific wins, like
 	// http.ServeMux: the one with the most literal words. "play {query} in
 	// the {speaker}" beats "play {query}", and an exact plain phrase (all
 	// literal) beats any template.
-	var best Result
+	var best assistant.Recognition
 	bestLiterals := -1
 	for _, p := range m.phrases {
 		if p.template != nil {
 			slots, ok := matchTemplate(p.template, tokens)
 			if literals := literalWords(p.template); ok && literals > bestLiterals {
-				best = Result{Name: p.intent, Phrase: p.text, Score: 1, Slots: slots}
+				best = assistant.Recognition{Intent: p.intent, Phrase: p.text, Score: 1, Slots: slots, By: By}
 				bestLiterals = literals
 			}
 			continue
 		}
 		if p.normalized == normalized {
 			if len(p.tokens) > bestLiterals {
-				best = Result{Name: p.intent, Phrase: p.text, Score: 1}
+				best = assistant.Recognition{Intent: p.intent, Phrase: p.text, Score: 1, By: By}
 				bestLiterals = len(p.tokens)
 			}
 			continue
 		}
 		if score := dice(tokens, p.tokens); bestLiterals < 0 && score > best.Score {
-			best = Result{Name: p.intent, Phrase: p.text, Score: score}
+			best = assistant.Recognition{Intent: p.intent, Phrase: p.text, Score: score, By: By}
 		}
 	}
-	if best.Name == "" || best.Score < m.Threshold {
-		return Result{}, errors.WithStack(&NoMatchError{Best: best})
+	if best.Intent == "" || best.Score < m.Threshold {
+		return assistant.Recognition{}, errors.WithStack(&NoMatchError{Best: best})
 	}
 	return best, nil
 }

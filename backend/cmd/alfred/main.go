@@ -55,11 +55,12 @@ func main() {
 		logger.Error("Failed to set up skills", slog.Any("error", err))
 		os.Exit(1)
 	}
-	asst := app.NewAssistant(router)
+	templates := match.New(router.Intents())
+	asst := app.NewAssistant(router, templates)
 	sttService, cleanup, err := app.New(
 		app.Options{
 			VAD:               *vad,
-			Prompt:            asst.Prompt(),
+			Prompt:            templates.Prompt(),
 			Verbose:           *verbose,
 			SaveDir:           saveDir(*save),
 			NearMissThreshold: float32(*nearMiss),
@@ -121,7 +122,7 @@ func main() {
 			case errors.As(err, &noMatch):
 				// TODO: fall back to the cloud LLM (#2)
 				logger.Info("No command matched", slog.String("text", transcript.Text),
-					slog.String("best_intent", noMatch.Best.Name),
+					slog.String("best_intent", noMatch.Best.Intent),
 					slog.Float64("best_score", noMatch.Best.Score))
 				say(ctx, speaker, logger, app.NoMatchText)
 			case err != nil:
@@ -129,9 +130,10 @@ func main() {
 				say(ctx, speaker, logger, assistant.SpokenText(err))
 			default:
 				logger.Info("🗣️ RESPONSE",
-					slog.String("intent", reply.Match.Name),
-					slog.String("phrase", reply.Match.Phrase),
-					slog.Float64("score", reply.Match.Score),
+					slog.String("intent", reply.Recognition.Intent),
+					slog.String("by", reply.Recognition.By),
+					slog.String("phrase", reply.Recognition.Phrase),
+					slog.Float64("score", reply.Recognition.Score),
 					slog.String("text", reply.Text))
 				say(ctx, speaker, logger, reply.Text)
 			}

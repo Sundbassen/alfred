@@ -1,7 +1,8 @@
-// Package app wires Alfred together: the voice framework (internal/voice)
-// and the registered commands (internal/commands, via Router and
-// Assistant). Shared by
-// the live app (cmd/alfred) and the offline replay harness (cmd/replaywav).
+// Package app wires the voice framework (internal/voice) into a listener
+// and answers transcripts with the registered skills (Assistant). It never
+// imports skills: the binaries register them through cmd/internal/wiring.
+// Shared by the live app (cmd/alfred) and the offline replay harness
+// (cmd/replaywav).
 package app
 
 import (

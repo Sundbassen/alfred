@@ -17,6 +17,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/sundbassen/alfred/cmd/internal/wiring"
 	"github.com/sundbassen/alfred/internal/app"
 	"github.com/sundbassen/alfred/internal/assistant"
 	"github.com/sundbassen/alfred/internal/assistant/match"
@@ -48,7 +49,12 @@ func main() {
 	}
 	data = append(data, make([]byte, *tailMs*app.SampleRate/1000*2)...)
 
-	asst := app.NewAssistant(app.Router())
+	router := assistant.NewRouter()
+	if err := wiring.RegisterSkills(router); err != nil {
+		logger.Error("Failed to set up skills", slog.Any("error", err))
+		os.Exit(1)
+	}
+	asst := app.NewAssistant(router)
 	service, cleanup, err := app.New(app.Options{VAD: *vad, Prompt: asst.Prompt(), SaveDir: *save, Verbose: *verbose}, logger)
 	if err != nil {
 		logger.Error("Failed to create speech pipeline", slog.Any("error", err))

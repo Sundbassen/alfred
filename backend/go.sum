@@ -1,7 +1,7 @@
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/gen2brain/malgo v0.11.24 h1:hHcIJVfzWcEDHFdPl5Dl/CUSOjzOleY0zzAV8Kx+imE=
-github.com/gen2brain/malgo v0.11.24/go.mod h1:f9TtuN7DVrXMiV/yIceMeWpvanyVzJQMlBecJFVMxww=
+github.com/gen2brain/malgo v0.11.28 h1:fuGzm6nOz/3cDNSeTYO5LmE9B4bRqVj4KZT5WMm39HE=
+github.com/gen2brain/malgo v0.11.28/go.mod h1:xLVG3ROA33Bzol1quF3e4ehqcFuqh8QK4B8T6LQUs/M=
 github.com/ggerganov/whisper.cpp/bindings/go v0.0.0-20251101123828-999a7e0cbf84 h1:K1TzbrlGmogqCcw+sd4gZAtYTM9p4DDrMNA1cxmC+sw=
 github.com/ggerganov/whisper.cpp/bindings/go v0.0.0-20251101123828-999a7e0cbf84/go.mod h1:qyHjS/50ORo01H0NsuEEGsQR9VCtOcEye0gUl2sx1s8=
 github.com/go-audio/audio v1.0.0 h1:zS9vebldgbQqktK4H0lUqWrG8P0NxCJVqcj7ZpNnwd4=

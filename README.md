@@ -66,11 +66,12 @@ Training generates synthetic samples with Piper, downloads ~3 GB of negative fea
 cd backend
 make run                  # listen for "hey alfred"
 make run SAVE=1           # also save wake word clips and commands to .recordings/
+make run V=1              # verbose: audio level / wake word score stats every ~5 s, whisper.cpp output
 make replay WAV=file.wav  # run a recorded wav (16 kHz mono s16) through the pipeline
 make test                 # tests with the right cgo flags (models optional; tests skip without them)
 ```
 
-Flags for `./alfred`: `-vad rms|silero` (silence detector), `-tts espeak|none`, `-save`, `-near-miss 0.005` (with `-save`: the score from which an undetected utterance counts as a near miss).
+Flags for `./alfred`: `-vad rms|silero` (silence detector), `-tts espeak|none`, `-save`, `-near-miss 0.005` (with `-save`: the score from which an undetected utterance counts as a near miss), `-v` (verbose; the stats are what you tune the silence and wake word thresholds with).
 
 ### Improving the wake word
 

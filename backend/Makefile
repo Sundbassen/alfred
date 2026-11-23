@@ -83,10 +83,11 @@ build:
 	@echo "Build complete!"
 
 # Build and run. SAVE=1 saves wake word clips, near misses and commands to
-# .recordings/{wakeword,commands} (review wake word clips with make review)
+# .recordings/{wakeword,commands} (review wake word clips with make review).
+# V=1 adds debug logs (level/score stats) and whisper.cpp output.
 run: build
 	@echo "Running alfred..."
-	./alfred $(if $(SAVE),-save)
+	./alfred $(if $(SAVE),-save) $(if $(V),-v)
 
 # Review collected wake word clips: plays each one and asks
 #   y = the wake word  -> .recordings/validated (--custom-samples)
@@ -116,6 +117,6 @@ clean:
 	@echo "Clean complete!"
 
 # Replay a recorded wav (16 kHz mono s16) through the command pipeline:
-#   make replay WAV=hey_alfred_lights.wav [VAD=silero]
+#   make replay WAV=hey_alfred_lights.wav [VAD=silero] [V=1]
 replay:
-	go run ./cmd/replaywav -vad $(or $(VAD),rms) $(WAV)
+	go run ./cmd/replaywav -vad $(or $(VAD),rms) $(if $(V),-v) $(WAV)

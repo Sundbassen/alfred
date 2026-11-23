@@ -16,7 +16,7 @@ import (
 )
 
 func main() {
-	logger := logging.New()
+	logger := logging.New(true)
 
 	config := mic.DefaultConfig()
 	micService, err := mic.NewMicService(config, logger)

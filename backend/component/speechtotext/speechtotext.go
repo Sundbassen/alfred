@@ -172,7 +172,6 @@ func (s *sttService) ProcessAudio(audioData []byte) error {
 
 	select {
 	case s.audioChan <- audioData:
-		s.logger.Debug("Audio data queued for processing", slog.Int("bytes", len(audioData)))
 		return nil
 	default:
 		s.logger.Warn("Audio buffer full, dropping frame")

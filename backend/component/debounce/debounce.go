@@ -179,7 +179,7 @@ func (r *rmsSilenceDetector) logStats(rms float64, isSilent bool, samples int) {
 			slog.Float64("noise_floor", r.floor.value()),
 			slog.Float64("effective_threshold", r.effectiveThreshold()))
 	}
-	r.logger.Info("Audio level stats", attrs...)
+	r.logger.Debug("Audio level stats", attrs...)
 
 	r.statSamples = 0
 	r.statCount = 0

@@ -41,6 +41,9 @@ type Options struct {
 	// NearMissThreshold: wake word score from which an undetected
 	// utterance is saved as a near miss (0 = default 0.005).
 	NearMissThreshold float32
+	// Verbose keeps whisper.cpp's own log output (model loading details),
+	// which is discarded otherwise.
+	Verbose bool
 }
 
 // Commands returns the registry of everything Alfred can do. Register new
@@ -74,6 +77,9 @@ func New(opts Options, logger *slog.Logger) (speechtotext.SpeechToTextService, f
 		return nil, nil, fmt.Errorf("failed to create streaming wake word activator")
 	}
 
+	if !opts.Verbose {
+		whisperprocessor.QuietLogs()
+	}
 	model, err := whisper.New(whisperModel)
 	if err != nil {
 		return nil, nil, fmt.Errorf("load whisper model %s: %w", whisperModel, err)
@@ -129,7 +135,7 @@ func newSilenceDetector(vad string, logger *slog.Logger) (debounce.SilenceDetect
 		return debounce.NewRMSSilenceDetector(debounce.RMSConfig{
 			// RMS of normalized samples; the minimum threshold, raised
 			// by the adaptive noise floor in louder rooms. Tune with the
-			// "Audio level stats" log: must sit above ambient rms_avg and
+			// "Audio level stats" log (alfred -v): must sit above ambient rms_avg and
 			// below speech rms_max. Measured 2026-07-19 with mic source
 			// at 25% volume: ambient ~0.004.
 			SilenceThreshold: 0.015,

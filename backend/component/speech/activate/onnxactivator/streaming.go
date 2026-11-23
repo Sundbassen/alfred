@@ -194,7 +194,7 @@ func (a *streamingActivator) processStep(step []float32) (float32, error) {
 	return a.runClassifier(a.featBuf)
 }
 
-// logStats logs the maximum score every ~5 s. This is the tuning signal for
+// logStats logs the maximum score every ~5 s (Debug; alfred -v). This is the tuning signal for
 // the threshold: compare max_score while speaking the wake word against
 // max_score during ordinary speech and silence.
 func (a *streamingActivator) logStats(score float32) {
@@ -205,7 +205,7 @@ func (a *streamingActivator) logStats(score float32) {
 	if a.statStep < statWindowSteps {
 		return
 	}
-	a.logger.Info("Wake word score stats",
+	a.logger.Debug("Wake word score stats",
 		slog.Float64("max_score", float64(a.statMax)),
 		slog.Float64("threshold", float64(a.threshold)))
 	a.statMax = 0

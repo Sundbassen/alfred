@@ -49,6 +49,10 @@ func (a *Assistant) Respond(ctx context.Context, transcript string) (*Reply, err
 	if err != nil {
 		return nil, err
 	}
+	intent, err = assistant.Fill(intent, res.Slots)
+	if err != nil {
+		return nil, err
+	}
 	resp, err := a.router.Dispatch(ctx, intent)
 	if err != nil {
 		return nil, errors.WithMessage(err, res.Name)

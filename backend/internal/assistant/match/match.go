@@ -1,9 +1,13 @@
 // Package match recognizes intents locally by matching transcripts against
-// the example phrases of the registered intents.
+// the example phrases of the registered intents. A phrase is either plain
+// ("what time is it", matched exactly or by token overlap) or a template
+// with slots ("play {query}"), matched literally with each slot capturing
+// one or more words.
 package match
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode"
 
@@ -35,7 +39,10 @@ func (e *NoMatchError) Unwrap() error { return fault.ErrNotFound }
 type Result struct {
 	Name   string  // intent name; empty when there are no phrases or the transcript has no words
 	Phrase string  // the phrase that matched best
-	Score  float64 // 0..1; 1 is an exact match after normalization
+	Score  float64 // 0..1; 1 is an exact or template match after normalization
+	// Slots holds the words each slot of a template captured (normalized),
+	// for assistant.Fill; nil for plain phrases.
+	Slots map[string]string
 }
 
 // Matcher recognizes intents by matching transcripts against their example
@@ -52,6 +59,85 @@ type phrase struct {
 	text       string
 	normalized string
 	tokens     []string
+	template   []element // non-nil when the phrase has slots
+}
+
+// element is one part of a template: literal words or a slot.
+type element struct {
+	words []string // literal, normalized; empty for a slot
+	slot  string   // slot name; empty for literal words
+}
+
+var slotPattern = regexp.MustCompile(`\{(\w+)\}`)
+
+// compileTemplate splits a phrase with slots into literal words and slots.
+// It returns nil for a phrase without slots. Slots are found before
+// normalization, which would strip the braces.
+func compileTemplate(text string) []element {
+	locs := slotPattern.FindAllStringSubmatchIndex(text, -1)
+	if locs == nil {
+		return nil
+	}
+	var elems []element
+	literal := func(s string) {
+		if words := strings.Fields(normalize(s)); len(words) > 0 {
+			elems = append(elems, element{words: words})
+		}
+	}
+	prev := 0
+	for _, loc := range locs {
+		literal(text[prev:loc[0]])
+		elems = append(elems, element{slot: text[loc[2]:loc[3]]})
+		prev = loc[1]
+	}
+	literal(text[prev:])
+	return elems
+}
+
+// literalWords counts a template's literal words: its specificity.
+func literalWords(elems []element) int {
+	n := 0
+	for _, el := range elems {
+		n += len(el.words)
+	}
+	return n
+}
+
+// matchTemplate matches the whole transcript (normalized tokens) against a
+// template. Each slot captures at least one token; when a slot is followed
+// by literal words it takes the longest capture, so "play {query} in the
+// {speaker}" gives the query everything up to the last "in the".
+func matchTemplate(elems []element, tokens []string) (map[string]string, bool) {
+	slots := make(map[string]string)
+	var match func(e, t int) bool
+	match = func(e, t int) bool {
+		if e == len(elems) {
+			return t == len(tokens)
+		}
+		el := elems[e]
+		if el.slot == "" {
+			if t+len(el.words) > len(tokens) {
+				return false
+			}
+			for i, w := range el.words {
+				if tokens[t+i] != w {
+					return false
+				}
+			}
+			return match(e+1, t+len(el.words))
+		}
+		for end := len(tokens); end > t; end-- {
+			if match(e+1, end) {
+				slots[el.slot] = strings.Join(tokens[t:end], " ")
+				return true
+			}
+		}
+		return false
+	}
+	if !match(0, 0) {
+		return nil, false
+	}
+	return slots, true
 }
 
 // New builds a matcher over the phrases of the given intents (from
@@ -60,12 +146,13 @@ func New(routes []assistant.Route) *Matcher {
 	m := &Matcher{Threshold: DefaultThreshold}
 	for _, rt := range routes {
 		for _, text := range rt.Spec.Phrases {
-			normalized := normalize(text)
+			normalized := normalize(slotPattern.ReplaceAllString(text, ""))
 			m.phrases = append(m.phrases, phrase{
 				intent:     rt.Name,
 				text:       text,
 				normalized: normalized,
 				tokens:     strings.Fields(normalized),
+				template:   compileTemplate(text),
 			})
 		}
 	}
@@ -79,7 +166,8 @@ const maxPromptWords = 150
 // Prompt returns an initial prompt for speech-to-text that biases decoding
 // toward the command phrases, written as separate sentences, e.g. "What
 // time is it? Tell me the time." Phrases are deduplicated, kept in
-// registration order, and cut off at maxPromptWords.
+// registration order, and cut off at maxPromptWords. Templates contribute
+// their literal words ("play {query}" becomes "Play.").
 //
 // Sentences, not a comma-separated list: whisper continues the style of its
 // prompt, and after a list prompt greedy decoding looped ("what time is it,
@@ -90,7 +178,7 @@ func (m *Matcher) Prompt() string {
 	seen := make(map[string]bool)
 	words := 0
 	for _, p := range m.phrases {
-		text := strings.TrimSpace(strings.ToLower(p.text))
+		text := strings.Join(strings.Fields(strings.ToLower(slotPattern.ReplaceAllString(p.text, ""))), " ")
 		if text == "" || seen[text] {
 			continue
 		}
@@ -124,15 +212,29 @@ func (m *Matcher) Recognize(transcript string) (Result, error) {
 		return Result{}, errors.WithStack(&NoMatchError{})
 	}
 
+	// Among full matches (score 1) the most specific wins, like
+	// http.ServeMux: the one with the most literal words. "play {query} in
+	// the {speaker}" beats "play {query}", and an exact plain phrase (all
+	// literal) beats any template.
 	var best Result
+	bestLiterals := -1
 	for _, p := range m.phrases {
-		var score float64
-		if p.normalized == normalized {
-			score = 1
-		} else {
-			score = dice(tokens, p.tokens)
+		if p.template != nil {
+			slots, ok := matchTemplate(p.template, tokens)
+			if literals := literalWords(p.template); ok && literals > bestLiterals {
+				best = Result{Name: p.intent, Phrase: p.text, Score: 1, Slots: slots}
+				bestLiterals = literals
+			}
+			continue
 		}
-		if score > best.Score {
+		if p.normalized == normalized {
+			if len(p.tokens) > bestLiterals {
+				best = Result{Name: p.intent, Phrase: p.text, Score: 1}
+				bestLiterals = len(p.tokens)
+			}
+			continue
+		}
+		if score := dice(tokens, p.tokens); bestLiterals < 0 && score > best.Score {
 			best = Result{Name: p.intent, Phrase: p.text, Score: score}
 		}
 	}

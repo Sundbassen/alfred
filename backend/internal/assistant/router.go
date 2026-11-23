@@ -47,6 +47,7 @@ func Handle[I Intent](r *Router, spec Spec, h func(ctx context.Context, intent I
 	if _, dup := r.routes[name]; dup {
 		panic(fmt.Sprintf("assistant: intent %q registered twice", name))
 	}
+	checkSlots(zero, spec)
 
 	r.routes[name] = &route{
 		Route:     Route{Name: name, Spec: spec},

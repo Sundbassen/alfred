@@ -14,8 +14,8 @@ import "context"
 //	func (AskTime) IntentName() string { return "time" }
 //
 // Intent types should be non-pointer structs with a value receiver, so
-// their zero value can name itself. Parameters ("slots") are fields of the
-// type.
+// their zero value can name itself. Parameters ("slots") are string fields
+// of the type tagged `slot:"name"`, filled from the phrase's {name}.
 type Intent interface {
 	IntentName() string
 }
@@ -32,7 +32,8 @@ type Spec struct {
 	// recognizer later, and for listings).
 	Description string
 	// Phrases are example phrasings, used by the local matcher and to bias
-	// speech-to-text toward them.
+	// speech-to-text toward them. A phrase may contain slots, "play {query}",
+	// filled into the intent's fields tagged `slot:"query"` (see Fill).
 	Phrases []string
 }
 

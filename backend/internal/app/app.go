@@ -1,0 +1,160 @@
+// Package app wires Alfred together: the voice framework (internal/voice)
+// and the registered commands (internal/commands, via Commands). Shared by
+// the live app (cmd/alfred) and the offline replay harness (cmd/replaywav).
+package app
+
+import (
+	"fmt"
+	"log/slog"
+
+	"github.com/ggerganov/whisper.cpp/bindings/go/pkg/whisper"
+	"github.com/sundbassen/alfred/internal/assistant"
+	"github.com/sundbassen/alfred/internal/commands/clock"
+	"github.com/sundbassen/alfred/internal/platform/onnxrt"
+	"github.com/sundbassen/alfred/internal/voice"
+	"github.com/sundbassen/alfred/internal/voice/listener"
+	"github.com/sundbassen/alfred/internal/voice/recorder"
+	"github.com/sundbassen/alfred/internal/voice/stt"
+	"github.com/sundbassen/alfred/internal/voice/vad"
+	"github.com/sundbassen/alfred/internal/voice/vad/silero"
+	"github.com/sundbassen/alfred/internal/voice/wakeword"
+)
+
+const (
+	SampleRate = 16000
+
+	whisperModel = "models/ggml-base.en.bin"
+	sileroModel  = "models/silero/silero_vad.onnx"
+
+	// Silence that ends a assistant.
+	silenceMs = 600
+)
+
+type Options struct {
+	// VAD selects the silence detector: "rms" (adaptive RMS) or "silero".
+	VAD string
+	// Commands, if set, biases transcription toward their phrases via
+	// whisper's initial prompt.
+	Commands *assistant.Registry
+	// SaveDir, if set, saves wake word clips, near misses and commands
+	// under this directory (see internal/voice/recorder).
+	SaveDir string
+	// NearMissThreshold: wake word score from which an undetected
+	// utterance is saved as a near miss (0 = default 0.005).
+	NearMissThreshold float32
+	// Verbose keeps whisper.cpp's own log output (model loading details),
+	// which is discarded otherwise.
+	Verbose bool
+}
+
+// Commands returns the registry of everything Alfred can do. Register new
+// commands here.
+func Commands() *assistant.Registry {
+	return assistant.NewRegistry(
+		clock.New(),
+	)
+}
+
+// New builds the speech-to-text service. The returned cleanup releases the
+// whisper model and must be called after the service has stopped.
+func New(opts Options, logger *slog.Logger) (listener.Service, func(), error) {
+	detector, err := newSilenceDetector(opts.VAD, logger)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	activatorConfig := wakeword.Config{
+		ModelPath:          "models/alfred/hey_alfred.onnx",
+		MelspecModelPath:   "models/openwakeword/melspectrogram.onnx",
+		EmbeddingModelPath: "models/openwakeword/embedding_model.onnx",
+		OnnxRuntimeLibPath: onnxrt.LibPath(),
+		Threshold:          0.03,
+		SampleRate:         SampleRate,
+		Logger:             logger,
+	}
+
+	streaming := wakeword.NewStreaming(activatorConfig)
+	if streaming == nil {
+		return nil, nil, fmt.Errorf("failed to create streaming wake word activator")
+	}
+
+	if !opts.Verbose {
+		stt.QuietLogs()
+	}
+	model, err := whisper.New(whisperModel)
+	if err != nil {
+		return nil, nil, fmt.Errorf("load whisper model %s: %w", whisperModel, err)
+	}
+	cleanup := func() { model.Close() }
+
+	var prompt string
+	if opts.Commands != nil {
+		prompt = opts.Commands.Prompt()
+	}
+	processor := stt.New(stt.Config{
+		Model:         model,
+		Language:      "en",
+		SampleRate:    SampleRate,
+		Logger:        logger,
+		InitialPrompt: prompt,
+	})
+	if processor == nil {
+		cleanup()
+		return nil, nil, fmt.Errorf("failed to create whisper processor")
+	}
+
+	config := listener.DefaultConfig(detector, processor, streaming)
+	config.CommandSilenceMs = silenceMs
+	config.NearMissThreshold = opts.NearMissThreshold
+	if opts.SaveDir != "" {
+		rec, err := recorder.New(opts.SaveDir, SampleRate, logger)
+		if err != nil {
+			cleanup()
+			return nil, nil, err
+		}
+		config.Sink = rec
+		modelCleanup := cleanup
+		cleanup = func() {
+			rec.Close()
+			modelCleanup()
+		}
+		logger.Warn("Saving wake word clips, near misses and commands to disk",
+			slog.String("dir", opts.SaveDir))
+	}
+
+	service, err := listener.New(config, logger)
+	if err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	return service, cleanup, nil
+}
+
+func newSilenceDetector(kind string, logger *slog.Logger) (voice.SilenceDetector, error) {
+	switch kind {
+	case "", "rms":
+		return vad.NewRMSSilenceDetector(vad.RMSConfig{
+			// RMS of normalized samples; the minimum threshold, raised
+			// by the adaptive noise floor in louder rooms. Tune with the
+			// "Audio level stats" log (alfred -v): must sit above ambient rms_avg and
+			// below speech rms_max. Measured 2026-07-19 with mic source
+			// at 25% volume: ambient ~0.004.
+			SilenceThreshold: 0.015,
+			// Footsteps and rumble are low-frequency; speech is not.
+			// The high-pass keeps walking noise from counting as speech.
+			HighPassHz: 200,
+			SampleRate: SampleRate,
+			Adaptive:   true,
+			Logger:     logger,
+		}), nil
+	case "silero":
+		return silero.New(silero.Config{
+			ModelPath:          sileroModel,
+			OnnxRuntimeLibPath: onnxrt.LibPath(),
+			SampleRate:         SampleRate,
+			Logger:             logger,
+		})
+	default:
+		return nil, fmt.Errorf("unknown -vad %q (want rms or silero)", kind)
+	}
+}

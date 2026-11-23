@@ -10,12 +10,12 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/sundbassen/alfred/component/command"
-	"github.com/sundbassen/alfred/component/mic"
-	"github.com/sundbassen/alfred/component/tts"
-	"github.com/sundbassen/alfred/component/tts/espeak"
-	"github.com/sundbassen/alfred/internal/logging"
-	"github.com/sundbassen/alfred/internal/pipeline"
+	"github.com/sundbassen/alfred/internal/app"
+	"github.com/sundbassen/alfred/internal/assistant"
+	"github.com/sundbassen/alfred/internal/platform/logging"
+	"github.com/sundbassen/alfred/internal/voice/mic"
+	"github.com/sundbassen/alfred/internal/voice/tts"
+	"github.com/sundbassen/alfred/internal/voice/tts/espeak"
 )
 
 func main() {
@@ -48,9 +48,9 @@ func main() {
 
 	// Create the speech pipeline: streaming wake word detection followed by
 	// command endpointing and transcription
-	commands := pipeline.Commands()
-	sttService, cleanup, err := pipeline.New(
-		pipeline.Options{
+	commands := app.Commands()
+	sttService, cleanup, err := app.New(
+		app.Options{
 			VAD:               *vad,
 			Commands:          commands,
 			Verbose:           *verbose,
@@ -110,7 +110,7 @@ func main() {
 
 			resp, match, err := commands.Handle(ctx, transcript.Text)
 			switch {
-			case errors.Is(err, command.ErrNoMatch):
+			case errors.Is(err, assistant.ErrNoMatch):
 				// TODO: fall back to the cloud LLM (#2)
 				attrs := []any{slog.String("text", transcript.Text)}
 				if match.Command != nil {

@@ -11,8 +11,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/sundbassen/alfred/component/mic"
-	"github.com/sundbassen/alfred/internal/logging"
+	"github.com/sundbassen/alfred/internal/platform/logging"
+	"github.com/sundbassen/alfred/internal/voice/mic"
 )
 
 func main() {

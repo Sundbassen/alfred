@@ -77,7 +77,7 @@ record: build
 # Review collected wake word clips: plays each one and asks
 #   y = the wake word  -> .recordings/validated (--custom-samples)
 #   x = not it         -> .recordings/negative  (--custom-negatives)
-#   n = delete
+#   n = delete (damaged/unclear wake word, or private)
 review:
 	@go run ./cmd/reviewrecordings
 

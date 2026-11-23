@@ -4,8 +4,13 @@
 //	y  the wake word: positive sample -> .recordings/validated
 //	   (train-wakeword.py --custom-samples)
 //	x  not the wake word: negative sample -> .recordings/negative
-//	   (train-wakeword.py --custom-negatives); keep false triggers this way
-//	n  unusable (noise, clipped): delete
+//	   (train-wakeword.py --custom-negatives). Anything without the wake
+//	   word, including noise and silence; keep false triggers this way
+//	n  delete: a damaged or unclear wake word (cut off, drowned out),
+//	   which would be harmful as either label, or a private clip
+//
+// Only use x when sure the wake word is not in the clip: a real wake word
+// labeled negative teaches the model to reject it.
 //
 // Files keep their names, so cmd/wakestats can relate labels to scores.
 package main
@@ -61,8 +66,9 @@ func main() {
 	}
 
 	fmt.Printf("reviewing %d recordings\n", len(files))
-	fmt.Println("y = it's the wake word (positive)   x = not the wake word (negative, e.g. a false trigger)")
-	fmt.Println("n = delete (noise, unusable)        r = replay   q = quit")
+	fmt.Println("y = it's the wake word (positive)")
+	fmt.Println("x = not the wake word (negative: false triggers, other speech, noise); only if sure")
+	fmt.Println("n = delete (damaged/unclear wake word, or private)   r = replay   q = quit")
 
 	reader := bufio.NewReader(os.Stdin)
 	positive, negative, deleted := 0, 0, 0

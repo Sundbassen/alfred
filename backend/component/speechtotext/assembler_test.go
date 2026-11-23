@@ -6,12 +6,12 @@ import (
 )
 
 // Test configuration with tiny, easily reasoned-about sizes:
-// 4-byte chunks, 2-chunk pre-roll, 2-chunk silence gap,
+// 4-byte chunks, 8-byte (2-chunk) pre-roll, 8-byte (2-chunk) silence gap,
 // 12-byte (3-chunk) minimum, 40-byte (10-chunk) maximum.
 func testConfig() assemblerConfig {
 	return assemblerConfig{
-		preRollChunks:     2,
-		silenceGapChunks:  2,
+		preRollBytes:      8,
+		silenceGapBytes:   8,
 		minUtteranceBytes: 12,
 		maxUtteranceBytes: 40,
 	}
@@ -119,5 +119,39 @@ func TestPendingExposesIncompleteUtterance(t *testing.T) {
 	a.Add(chunk(11), false)
 	if got := len(a.Pending()); got != 8 {
 		t.Errorf("Pending length = %d, want 8", got)
+	}
+}
+
+// TestMixedChunkSizes verifies byte-based accounting: the silence gap and
+// pre-roll are measured in bytes regardless of how the audio is chunked.
+func TestMixedChunkSizes(t *testing.T) {
+	a := newUtteranceAssembler(testConfig())
+
+	// Idle: a 6-byte chunk then a 2-byte chunk fit the 8-byte pre-roll; a
+	// further 4-byte chunk evicts the 6-byte one.
+	a.Add(bytes.Repeat([]byte{1}, 6), true)
+	a.Add(bytes.Repeat([]byte{2}, 2), true)
+	a.Add(bytes.Repeat([]byte{3}, 4), true)
+
+	a.Add(bytes.Repeat([]byte{10}, 10), false)
+
+	// 3 + 3 silent bytes is below the 8-byte gap; 3 more crosses it.
+	if utt, _ := a.Add(bytes.Repeat([]byte{20}, 3), true); utt != nil {
+		t.Fatal("flushed before the silence gap")
+	}
+	if utt, _ := a.Add(bytes.Repeat([]byte{21}, 3), true); utt != nil {
+		t.Fatal("flushed before the silence gap")
+	}
+	utt, reason := a.Add(bytes.Repeat([]byte{22}, 3), true)
+	if reason != flushSilence {
+		t.Fatalf("expected flushSilence, got %v", reason)
+	}
+	want := bytes.Join([][]byte{
+		bytes.Repeat([]byte{2}, 2), bytes.Repeat([]byte{3}, 4),
+		bytes.Repeat([]byte{10}, 10),
+		bytes.Repeat([]byte{20}, 3), bytes.Repeat([]byte{21}, 3), bytes.Repeat([]byte{22}, 3),
+	}, nil)
+	if !bytes.Equal(utt, want) {
+		t.Errorf("utterance = % x\nwant        = % x", utt, want)
 	}
 }

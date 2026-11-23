@@ -8,18 +8,15 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/sundbassen/alfred/component/debounce"
 	"github.com/sundbassen/alfred/component/mic"
-	"github.com/sundbassen/alfred/component/speech"
-	"github.com/sundbassen/alfred/component/speech/activate/onnxactivator"
-	"github.com/sundbassen/alfred/component/speech/activate/recordingactivator"
-	"github.com/sundbassen/alfred/component/speechtotext"
 	"github.com/sundbassen/alfred/internal/logging"
+	"github.com/sundbassen/alfred/internal/pipeline"
 )
 
 func main() {
 	record := flag.Bool("record", false,
 		"save every detected utterance as a wav file in .recordings (for collecting training samples)")
+	vad := flag.String("vad", "rms", "silence detector: rms (adaptive RMS) or silero (Silero VAD)")
 	flag.Parse()
 
 	// Create logger
@@ -33,67 +30,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create wake word activator using the trained openWakeWord model
-	activatorConfig := onnxactivator.Config{
-		ModelPath:          "models/alfred/hey_alfred.onnx",
-		MelspecModelPath:   "models/openwakeword/melspectrogram.onnx",
-		EmbeddingModelPath: "models/openwakeword/embedding_model.onnx",
-		OnnxRuntimeLibPath: "/tmp/onnxruntime/lib/libonnxruntime.so",
-		Threshold:          0.03,
-		SampleRate:         16000,
-		Logger:             logger,
-	}
-	activatorService := onnxactivator.New(activatorConfig)
-	if activatorService == nil {
-		logger.Error("Failed to create wake word activator")
-		os.Exit(1)
-	}
-
-	// In record mode, wrap the activator so every scored utterance is saved
-	// as a wav file for wake word training (--custom-samples)
-	if *record {
-		activatorService = recordingactivator.New(recordingactivator.Config{
-			Inner:      activatorService,
-			Dir:        ".recordings",
-			SampleRate: 16000,
-			Logger:     logger,
-		})
-		if activatorService == nil {
-			logger.Error("Failed to create recording activator")
-			os.Exit(1)
-		}
-	}
-
-	// Create placeholder processor
-	placeholderProcessor := speech.NewPlaceholderProcessor()
-
-	// Create speech processor combining processor and activator
-	speechProcessor := speech.NewSpeechProcessor(placeholderProcessor, activatorService)
-
-	// Create speech-to-text service
-	sttConfig := speechtotext.DefaultConfig(
-		debounce.NewRMSSilenceDetector(
-			debounce.RMSConfig{
-				// RMS of normalized samples. Tune with the "Audio level
-				// stats" log: must sit above ambient rms_avg and below
-				// speech rms_max. Measured 2026-07-19 with mic source at
-				// 25% volume: ambient ~0.004.
-				SilenceThreshold: 0.015,
-				// Footsteps and rumble are low-frequency; speech is not.
-				// The high-pass keeps walking noise from counting as speech.
-				HighPassHz: 200,
-				SampleRate: 16000,
-				Logger:     logger,
-			},
-		),
-		speechProcessor,
-	)
-	sttConfig.SilenceDuration = 500 // 0.5 second pause triggers processing
-	sttService, err := speechtotext.NewSTTService(sttConfig, logger)
+	// Create the speech pipeline: streaming wake word detection followed by
+	// command endpointing and transcription (or utterance recording with
+	// -record)
+	sttService, cleanup, err := pipeline.New(pipeline.Options{Record: *record, VAD: *vad}, logger)
 	if err != nil {
-		logger.Error("Failed to create speech-to-text service", slog.Any("error", err))
+		logger.Error("Failed to create speech pipeline", slog.Any("error", err))
 		os.Exit(1)
 	}
+	defer cleanup()
 	defer sttService.Stop()
 
 	// Create context that will be cancelled on interrupt

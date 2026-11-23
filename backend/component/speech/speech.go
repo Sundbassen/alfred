@@ -52,3 +52,16 @@ func (p *placeholderProcessor) Process(ctx context.Context, data []byte) (Speech
 		Answer:     nil,
 	}, nil
 }
+
+// StreamingActivator detects the wake word in continuous audio. Unlike
+// Activator, which scores a complete utterance, it is fed every microphone
+// chunk in order and can fire mid-utterance.
+type StreamingActivator interface {
+	// Feed consumes the next chunk of continuous PCM16 audio (any size) and
+	// reports whether the wake word was detected.
+	Feed(ctx context.Context, chunk []byte) (bool, error)
+
+	// Reset clears buffered audio and features, e.g. after a detection, so
+	// earlier audio cannot trigger again.
+	Reset()
+}

@@ -55,3 +55,23 @@ for OWW_MODEL in melspectrogram.onnx embedding_model.onnx; do
         exit 1
     fi
 done
+
+# Download Silero VAD v5 (optional alternative silence detector, -vad silero)
+SILERO_DIR="${MODEL_DIR}/silero"
+SILERO_FILE="${SILERO_DIR}/silero_vad.onnx"
+SILERO_URL="https://github.com/snakers4/silero-vad/raw/v5.1.2/src/silero_vad/data/silero_vad.onnx"
+
+mkdir -p "${SILERO_DIR}"
+
+if [ -f "${SILERO_FILE}" ]; then
+    echo "Model already exists: ${SILERO_FILE}"
+else
+    echo "Downloading Silero VAD model"
+    if curl -fL -o "${SILERO_FILE}" "${SILERO_URL}"; then
+        echo "Model downloaded successfully!"
+        ls -lh "${SILERO_FILE}"
+    else
+        echo "Failed to download model"
+        exit 1
+    fi
+fi

@@ -7,6 +7,7 @@ import (
 
 	"github.com/sundbassen/alfred/component/debounce"
 	"github.com/sundbassen/alfred/component/speech"
+	"github.com/sundbassen/alfred/internal/pcm"
 )
 
 // Transcript represents a transcription result
@@ -41,6 +42,8 @@ type sttService struct {
 	silenceDuration int
 	silenceDetector debounce.SilenceDetector
 	speechProcessor speech.SpeechProcessor
+	streaming       speech.StreamingActivator
+	command         commandConfig
 	logger          *slog.Logger
 }
 
@@ -52,6 +55,18 @@ type Config struct {
 	SilenceDetector debounce.SilenceDetector // Silence detection implementation
 	SilenceDuration int                      // Duration of silence in milliseconds before processing (e.g., 1000 for 1 second)
 	SpeechProcessor speech.SpeechProcessor   // Speech processor for activation and command processing
+
+	// StreamingActivator enables the command phase: every chunk is fed to
+	// it, and once it fires, the following audio is recorded until a
+	// CommandSilenceMs gap and transcribed with SpeechProcessor.Process.
+	// When nil, the legacy utterance mode is used: silence-delimited
+	// utterances are passed to SpeechProcessor.Activate (-record mode).
+	StreamingActivator speech.StreamingActivator
+	CommandSilenceMs   int // silence that ends a command (default 600)
+	CommandTimeoutMs   int // give up if no speech starts this long after activation (default 4000)
+	CommandMaxMs       int // force-end a command after this long (default 10000)
+	CommandPreRollMs   int // audio kept from before command speech starts (default 100)
+	CommandMinMs       int // minimum command length before a silence gap may end it (default 300)
 }
 
 // DefaultConfig returns a default configuration
@@ -71,6 +86,9 @@ func NewSTTService(config Config, logger *slog.Logger) (SpeechToTextService, err
 	if config.SpeechProcessor == nil {
 		return nil, fmt.Errorf("speech processor is required")
 	}
+	if config.SampleRate == 0 {
+		config.SampleRate = 16000
+	}
 
 	service := &sttService{
 		transcriptChan:  make(chan Transcript, config.BufferSize),
@@ -81,7 +99,16 @@ func NewSTTService(config Config, logger *slog.Logger) (SpeechToTextService, err
 		silenceDetector: config.SilenceDetector,
 		silenceDuration: config.SilenceDuration,
 		speechProcessor: config.SpeechProcessor,
-		logger:          logger,
+		streaming:       config.StreamingActivator,
+		command: commandConfig{
+			sampleRate:      config.SampleRate,
+			silenceGapBytes: pcm.MsToBytes(withDefault(config.CommandSilenceMs, 600), config.SampleRate),
+			timeoutBytes:    pcm.MsToBytes(withDefault(config.CommandTimeoutMs, 4000), config.SampleRate),
+			maxBytes:        pcm.MsToBytes(withDefault(config.CommandMaxMs, 10000), config.SampleRate),
+			preRollBytes:    pcm.MsToBytes(withDefault(config.CommandPreRollMs, 100), config.SampleRate),
+			minBytes:        pcm.MsToBytes(withDefault(config.CommandMinMs, 300), config.SampleRate),
+		},
+		logger: logger,
 	}
 
 	return service, nil
@@ -139,17 +166,60 @@ func (s *sttService) TranscriptChannel() <-chan Transcript {
 	return s.transcriptChan
 }
 
-// processAudioLoop processes incoming audio chunks and produces transcripts.
+func withDefault(v, def int) int {
+	if v == 0 {
+		return def
+	}
+	return v
+}
+
+// processAudioLoop dispatches to the command-phase loop when a streaming
+// activator is configured, and to the legacy utterance loop otherwise.
+func (s *sttService) processAudioLoop(ctx context.Context) {
+	if s.streaming != nil {
+		s.commandLoop(ctx)
+		return
+	}
+	s.utteranceLoop(ctx)
+}
+
+// commandLoop feeds every chunk to the command controller (see command.go).
+func (s *sttService) commandLoop(ctx context.Context) {
+	controller := newCommandController(s.streaming, s.silenceDetector, s.speechProcessor,
+		s.command, s.logger, s.emit)
+
+	for {
+		select {
+		case <-ctx.Done():
+			controller.drain(context.WithoutCancel(ctx))
+			return
+		case audioData, ok := <-s.audioChan:
+			if !ok {
+				controller.drain(ctx)
+				return
+			}
+			controller.handle(ctx, audioData)
+		}
+	}
+}
+
+// emit sends a transcript without blocking if nobody is reading.
+func (s *sttService) emit(transcript Transcript) {
+	select {
+	case s.transcriptChan <- transcript:
+	default:
+		s.logger.Warn("Transcript channel full, dropping transcript", slog.String("text", transcript.Text))
+	}
+}
+
+// utteranceLoop processes incoming audio chunks (legacy utterance mode).
 // Uses a debounce pattern: the utteranceAssembler accumulates speech (with
 // pre-roll context) and emits a complete utterance once a silence gap
 // follows it; each utterance is handed to the activator.
-func (s *sttService) processAudioLoop(ctx context.Context) {
-	// Assuming each chunk is ~30ms (480 samples at 16kHz)
-	const chunkDurationMs = 30 // Adjust based on your microphone buffer size
-
+func (s *sttService) utteranceLoop(ctx context.Context) {
 	assembler := newUtteranceAssembler(assemblerConfig{
-		preRollChunks:     8, // ~240ms of context before speech onset
-		silenceGapChunks:  s.silenceDuration / chunkDurationMs,
+		preRollBytes:      pcm.MsToBytes(240, s.sampleRate), // context before speech onset
+		silenceGapBytes:   pcm.MsToBytes(s.silenceDuration, s.sampleRate),
 		minUtteranceBytes: s.sampleRate * 2 * 1,  // 1 second minimum
 		maxUtteranceBytes: s.sampleRate * 2 * 10, // force processing after 10 seconds without a silence gap
 	})
@@ -206,13 +276,9 @@ func (s *sttService) drainPending(ctx context.Context, assembler *utteranceAssem
 		return
 	}
 
-	transcript := Transcript{
+	s.emit(Transcript{
 		Text:       string(result.Text),
 		Confidence: float64(result.Confidence),
 		IsFinal:    true,
-	}
-	select {
-	case s.transcriptChan <- transcript:
-	default:
-	}
+	})
 }

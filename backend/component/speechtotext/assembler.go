@@ -15,14 +15,15 @@ const (
 // assemblerConfig holds the sizing rules for utterance assembly. All byte
 // counts refer to PCM16 audio (2 bytes per sample).
 type assemblerConfig struct {
-	preRollChunks     int // chunks of leading audio kept from before speech starts
-	silenceGapChunks  int // consecutive silent chunks that end an utterance
+	preRollBytes      int // leading audio kept from before speech starts (whole chunks, at most this many bytes)
+	silenceGapBytes   int // consecutive silent audio that ends an utterance
 	minUtteranceBytes int // minimum buffered bytes before a silence gap may flush
 	maxUtteranceBytes int // forced flush size cap
 }
 
 // utteranceAssembler turns a stream of audio chunks (each classified as
-// silent or not) into silence-delimited utterance buffers.
+// silent or not) into silence-delimited utterance buffers. All durations
+// are accounted in bytes, so chunks may have any (and varying) size.
 //
 // While idle it keeps a rolling pre-roll window of the most recent silent
 // chunks; when speech starts, the pre-roll is prepended to the utterance so
@@ -34,9 +35,10 @@ type assemblerConfig struct {
 type utteranceAssembler struct {
 	config assemblerConfig
 
-	preRoll        [][]byte
-	buffer         []byte
-	silenceCounter int
+	preRoll      [][]byte
+	preRollBytes int
+	buffer       []byte
+	silentBytes  int
 }
 
 func newUtteranceAssembler(config assemblerConfig) *utteranceAssembler {
@@ -50,7 +52,9 @@ func (a *utteranceAssembler) Add(chunk []byte, isSilent bool) ([]byte, flushReas
 	if isSilent && len(a.buffer) == 0 {
 		// Idle: remember recent audio as pre-roll for the next utterance
 		a.preRoll = append(a.preRoll, chunk)
-		if len(a.preRoll) > a.config.preRollChunks {
+		a.preRollBytes += len(chunk)
+		for len(a.preRoll) > 0 && a.preRollBytes > a.config.preRollBytes {
+			a.preRollBytes -= len(a.preRoll[0])
 			a.preRoll = a.preRoll[1:]
 		}
 		return nil, flushNone
@@ -62,17 +66,18 @@ func (a *utteranceAssembler) Add(chunk []byte, isSilent bool) ([]byte, flushReas
 			a.buffer = append(a.buffer, pre...)
 		}
 		a.preRoll = nil
+		a.preRollBytes = 0
 	}
 
 	a.buffer = append(a.buffer, chunk...)
 
 	if isSilent {
-		a.silenceCounter++
-		if a.silenceCounter >= a.config.silenceGapChunks && len(a.buffer) >= a.config.minUtteranceBytes {
+		a.silentBytes += len(chunk)
+		if a.silentBytes >= a.config.silenceGapBytes && len(a.buffer) >= a.config.minUtteranceBytes {
 			return a.flush(), flushSilence
 		}
 	} else {
-		a.silenceCounter = 0
+		a.silentBytes = 0
 	}
 
 	if len(a.buffer) >= a.config.maxUtteranceBytes {
@@ -80,6 +85,12 @@ func (a *utteranceAssembler) Add(chunk []byte, isSilent bool) ([]byte, flushReas
 	}
 
 	return nil, flushNone
+}
+
+// Speaking reports whether an utterance has started (speech was seen since
+// the last flush).
+func (a *utteranceAssembler) Speaking() bool {
+	return len(a.buffer) > 0
 }
 
 // Pending returns the incomplete utterance accumulated so far, for draining
@@ -91,7 +102,8 @@ func (a *utteranceAssembler) Pending() []byte {
 func (a *utteranceAssembler) flush() []byte {
 	utterance := a.buffer
 	a.buffer = nil
-	a.silenceCounter = 0
+	a.silentBytes = 0
 	a.preRoll = nil
+	a.preRollBytes = 0
 	return utterance
 }

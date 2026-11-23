@@ -1,4 +1,4 @@
-.PHONY: build all install clean prereqs
+.PHONY: build all install clean prereqs run record review replay
 
 # Whisper.cpp paths
 WHISPER_DIR := /tmp/whisper.cpp
@@ -43,7 +43,7 @@ install:
 	@echo "Setting up ONNX Runtime..."
 	@if [ ! -f "$(ONNXRUNTIME_DIR)/lib/libonnxruntime.so" ]; then \
 		echo "Downloading ONNX Runtime $(ONNXRUNTIME_VERSION)..."; \
-		curl -L -o /tmp/onnxruntime.tgz "$(ONNXRUNTIME_URL)"; \
+		curl -fL -o /tmp/onnxruntime.tgz "$(ONNXRUNTIME_URL)"; \
 		mkdir -p $(ONNXRUNTIME_DIR); \
 		tar -xzf /tmp/onnxruntime.tgz -C $(ONNXRUNTIME_DIR) --strip-components=1; \
 		rm /tmp/onnxruntime.tgz; \
@@ -83,3 +83,8 @@ clean:
 	@echo "Cleaning build artifacts..."
 	rm -f alfred
 	@echo "Clean complete!"
+
+# Replay a recorded wav (16 kHz mono s16) through the command pipeline:
+#   make replay WAV=hey_alfred_lights.wav [VAD=silero]
+replay:
+	go run ./cmd/replaywav -vad $(or $(VAD),rms) $(WAV)

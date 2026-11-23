@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"math"
 	"strings"
 
 	"github.com/ggerganov/whisper.cpp/bindings/go/pkg/whisper"
 	"github.com/sundbassen/alfred/component/speech"
+	"github.com/sundbassen/alfred/internal/pcm"
 )
 
 type activator struct {
@@ -102,7 +102,7 @@ func (a *activator) transcribeAudio(audioData []byte) string {
 	}
 
 	// Convert byte data (int16) to float32 samples as required by Whisper
-	samples := a.bytesToFloat32(audioData)
+	samples := pcm.ToFloat32Normalized(audioData)
 
 	a.logger.Debug("Activator transcribing audio", slog.Int("samples", len(samples)))
 
@@ -128,17 +128,4 @@ func (a *activator) transcribeAudio(audioData []byte) string {
 	}
 
 	return strings.TrimSpace(fullText)
-}
-
-// bytesToFloat32 converts int16 PCM audio data to float32 samples
-func (a *activator) bytesToFloat32(data []byte) []float32 {
-	samples := make([]float32, len(data)/2)
-
-	for i := 0; i < len(samples); i++ {
-		// Convert little-endian int16 to float32 in range [-1.0, 1.0]
-		sample := int16(data[i*2]) | int16(data[i*2+1])<<8
-		samples[i] = float32(sample) / float32(math.MaxInt16)
-	}
-
-	return samples
 }

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/sundbassen/alfred/internal/onnxrt"
 	"github.com/sundbassen/alfred/internal/wav"
 )
 
@@ -18,7 +19,7 @@ func testConfig(t *testing.T, threshold float32) Config {
 		"model":     "../../../../models/alfred/hey_alfred.onnx",
 		"melspec":   "../../../../models/openwakeword/melspectrogram.onnx",
 		"embedding": "../../../../models/openwakeword/embedding_model.onnx",
-		"onnxlib":   "/tmp/onnxruntime/lib/libonnxruntime.so",
+		"onnxlib":   onnxrt.LibPath(), // set by make test
 	}
 	for name, path := range paths {
 		if _, err := os.Stat(path); err != nil {

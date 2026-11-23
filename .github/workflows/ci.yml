@@ -32,9 +32,7 @@ jobs:
       - name: Cache whisper.cpp and ONNX Runtime
         uses: actions/cache@v4
         with:
-          path: |
-            /tmp/whisper.cpp
-            /tmp/onnxruntime
+          path: backend/.deps
           key: native-${{ runner.os }}-whisper-${{ steps.deps.outputs.whisper }}-ort-${{ steps.deps.outputs.ort }}
 
       # Portable build: a cached -march=native build could crash on a runner
@@ -42,9 +40,11 @@ jobs:
       - name: Install whisper.cpp and ONNX Runtime
         run: make install WHISPER_CMAKE_FLAGS=-DGGML_NATIVE=OFF
 
+      # Only our packages: go list skips dot directories such as .deps,
+      # which holds whisper.cpp's own Go bindings.
       - name: gofmt
         run: |
-          unformatted="$(gofmt -l .)"
+          unformatted="$(gofmt -l $(go list -f '{{.Dir}}' ./...))"
           if [ -n "$unformatted" ]; then echo "$unformatted"; exit 1; fi
 
       - run: make vet

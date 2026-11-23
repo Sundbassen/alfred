@@ -16,14 +16,14 @@ import (
 	"github.com/sundbassen/alfred/component/speech/activate/onnxactivator"
 	"github.com/sundbassen/alfred/component/speech/process/whisperprocessor"
 	"github.com/sundbassen/alfred/component/speechtotext"
+	"github.com/sundbassen/alfred/internal/onnxrt"
 )
 
 const (
 	SampleRate = 16000
 
-	onnxRuntimeLib = "/tmp/onnxruntime/lib/libonnxruntime.so"
-	whisperModel   = "models/ggml-base.en.bin"
-	sileroModel    = "models/silero/silero_vad.onnx"
+	whisperModel = "models/ggml-base.en.bin"
+	sileroModel  = "models/silero/silero_vad.onnx"
 
 	// Silence that ends a command.
 	silenceMs = 600
@@ -63,7 +63,7 @@ func New(opts Options, logger *slog.Logger) (speechtotext.SpeechToTextService, f
 		ModelPath:          "models/alfred/hey_alfred.onnx",
 		MelspecModelPath:   "models/openwakeword/melspectrogram.onnx",
 		EmbeddingModelPath: "models/openwakeword/embedding_model.onnx",
-		OnnxRuntimeLibPath: onnxRuntimeLib,
+		OnnxRuntimeLibPath: onnxrt.LibPath(),
 		Threshold:          0.03,
 		SampleRate:         SampleRate,
 		Logger:             logger,
@@ -143,7 +143,7 @@ func newSilenceDetector(vad string, logger *slog.Logger) (debounce.SilenceDetect
 	case "silero":
 		return silerovad.New(silerovad.Config{
 			ModelPath:          sileroModel,
-			OnnxRuntimeLibPath: onnxRuntimeLib,
+			OnnxRuntimeLibPath: onnxrt.LibPath(),
 			SampleRate:         SampleRate,
 			Logger:             logger,
 		})

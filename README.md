@@ -39,11 +39,11 @@ Unrecognized requests get "Sorry, I didn't catch that." A cloud LLM fallback for
 
 ```sh
 cd backend
-make install        # builds whisper.cpp (pinned) and downloads ONNX Runtime into /tmp
+make install        # builds whisper.cpp (pinned) and fetches ONNX Runtime into .deps/ (once)
 ./download-model.sh # Whisper base.en, openWakeWord feature models, Silero VAD -> models/
 ```
 
-`make install` puts its output in `/tmp`, so re-run it after a reboot (to be fixed: [#8](https://github.com/Sundbassen/alfred/issues/8)).
+Both `.deps/` and `models/` are gitignored. After `make build`, `./alfred` can also be run directly, without `make`.
 
 ### Wake word model
 

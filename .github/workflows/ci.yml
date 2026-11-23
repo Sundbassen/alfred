@@ -32,9 +32,7 @@ jobs:
       - name: Cache whisper.cpp and ONNX Runtime
         uses: actions/cache@v4
         with:
-          path: |
-            /tmp/whisper.cpp
-            /tmp/onnxruntime
+          path: backend/.deps
           key: native-${{ runner.os }}-whisper-${{ steps.deps.outputs.whisper }}-ort-${{ steps.deps.outputs.ort }}
 
       # Portable build: a cached -march=native build could crash on a runner

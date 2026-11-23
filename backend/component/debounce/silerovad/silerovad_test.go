@@ -4,15 +4,15 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/sundbassen/alfred/internal/onnxrt"
 )
 
-const (
-	modelPath = "../../../models/silero/silero_vad.onnx"
-	onnxLib   = "/tmp/onnxruntime/lib/libonnxruntime.so"
-)
+const modelPath = "../../../models/silero/silero_vad.onnx"
 
 func newTestDetector(t *testing.T) *detector {
 	t.Helper()
+	onnxLib := onnxrt.LibPath() // set by make test
 	for _, path := range []string{modelPath, onnxLib} {
 		if _, err := os.Stat(path); err != nil {
 			t.Skipf("missing %s; run download-model.sh and make install", path)

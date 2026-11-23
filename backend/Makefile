@@ -1,10 +1,14 @@
 .PHONY: build all install clean prereqs run review replay wakestats test vet
 
+# Native dependencies live in a project-local, gitignored directory (not
+# /tmp, which is wiped on reboot). Override with make install DEPS_DIR=...
+DEPS_DIR ?= $(CURDIR)/.deps
+
 # Whisper.cpp source, pinned so every machine (and CI) builds the same
 # version the Go bindings were tested against
 WHISPER_REPO := https://github.com/ggerganov/whisper.cpp.git
 WHISPER_REF := 96ec4d9823e9d0211944172da35f9f29134af990
-WHISPER_DIR := /tmp/whisper.cpp
+WHISPER_DIR := $(DEPS_DIR)/whisper.cpp
 # Extra cmake flags, e.g. -DGGML_NATIVE=OFF for a portable build (CI)
 WHISPER_CMAKE_FLAGS ?=
 WHISPER_INCLUDE := $(WHISPER_DIR)/include
@@ -16,16 +20,20 @@ GGML_LIB := $(WHISPER_DIR)/build/bin
 # from Microsoft's official PyPI wheel, pinned by version and sha256: the
 # GitHub release tarball URL used before returns 404.
 ONNXRUNTIME_VERSION := 1.26.0
-ONNXRUNTIME_DIR := /tmp/onnxruntime
+ONNXRUNTIME_DIR := $(DEPS_DIR)/onnxruntime
 ONNXRUNTIME_WHEEL_URL := https://files.pythonhosted.org/packages/7c/43/2a4e04f8dbeffad19bbcced4bcd4289bf478921518437404d6b92bdf213b/onnxruntime-1.26.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
 ONNXRUNTIME_WHEEL_SHA256 := 9b6dd70599005bd1bf29779f04a91978b92b5e719c11a20068a8f8e535f725b6
 
-# CGO flags
+# CGO flags. The rpath lets ./alfred and the tools find libwhisper/libggml
+# without LD_LIBRARY_PATH.
 export CGO_CFLAGS := -I$(WHISPER_INCLUDE) -I$(GGML_INCLUDE)
-export CGO_LDFLAGS := -L$(WHISPER_LIB) -L$(GGML_LIB) -lwhisper -lggml
+export CGO_LDFLAGS := -L$(WHISPER_LIB) -L$(GGML_LIB) -lwhisper -lggml -Wl,-rpath,$(WHISPER_LIB)
 
-# Library path for runtime
+# Library path for go run / go test binaries
 export LD_LIBRARY_PATH := $(WHISPER_LIB):$(GGML_LIB):$(ONNXRUNTIME_DIR)/lib
+
+# ONNX Runtime library for the app and the tests (internal/onnxrt.LibPath)
+export ALFRED_ONNXRUNTIME_LIB := $(ONNXRUNTIME_DIR)/lib/libonnxruntime.so
 
 # Install system prerequisites
 prereqs:

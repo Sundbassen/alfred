@@ -4,8 +4,9 @@ package wav
 
 import (
 	"encoding/binary"
-	"fmt"
 	"os"
+
+	"gitlab.com/tozd/go/errors"
 )
 
 const (
@@ -56,7 +57,7 @@ func Read(path string, sampleRate int) ([]byte, error) {
 		return nil, err
 	}
 	if len(raw) < 12 || string(raw[0:4]) != "RIFF" || string(raw[8:12]) != "WAVE" {
-		return nil, fmt.Errorf("%s: not a RIFF/WAVE file", path)
+		return nil, errors.Errorf("%s: not a RIFF/WAVE file", path)
 	}
 
 	var formatOK bool
@@ -68,23 +69,23 @@ func Read(path string, sampleRate int) ([]byte, error) {
 		switch id {
 		case "fmt ":
 			if len(body) < 16 {
-				return nil, fmt.Errorf("%s: short fmt chunk", path)
+				return nil, errors.Errorf("%s: short fmt chunk", path)
 			}
 			channels := binary.LittleEndian.Uint16(body[2:4])
 			rate := binary.LittleEndian.Uint32(body[4:8])
 			bits := binary.LittleEndian.Uint16(body[14:16])
 			if channels != numChannels || int(rate) != sampleRate || bits != bitsPerSample {
-				return nil, fmt.Errorf("%s: need %d Hz mono s16, got %d Hz, %d channels, %d bits",
+				return nil, errors.Errorf("%s: need %d Hz mono s16, got %d Hz, %d channels, %d bits",
 					path, sampleRate, rate, channels, bits)
 			}
 			formatOK = true
 		case "data":
 			if !formatOK {
-				return nil, fmt.Errorf("%s: data chunk before fmt chunk", path)
+				return nil, errors.Errorf("%s: data chunk before fmt chunk", path)
 			}
 			return body, nil
 		}
 		off += 8 + size + size%2
 	}
-	return nil, fmt.Errorf("%s: no data chunk", path)
+	return nil, errors.Errorf("%s: no data chunk", path)
 }

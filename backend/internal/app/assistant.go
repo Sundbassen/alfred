@@ -2,10 +2,10 @@ package app
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/sundbassen/alfred/internal/assistant"
 	"github.com/sundbassen/alfred/internal/assistant/match"
+	"gitlab.com/tozd/go/errors"
 )
 
 // NoMatchText is what to say when no intent matches the transcript.
@@ -51,7 +51,7 @@ func (a *Assistant) Respond(ctx context.Context, transcript string) (*Reply, err
 	}
 	resp, err := a.router.Dispatch(ctx, intent)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", res.Name, err)
+		return nil, errors.Errorf("%s: %w", res.Name, err)
 	}
 	return &Reply{Text: resp.Text, Match: res}, nil
 }

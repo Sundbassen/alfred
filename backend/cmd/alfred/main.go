@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
-	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -17,6 +15,7 @@ import (
 	"github.com/sundbassen/alfred/internal/voice/mic"
 	"github.com/sundbassen/alfred/internal/voice/tts"
 	"github.com/sundbassen/alfred/internal/voice/tts/espeak"
+	"gitlab.com/tozd/go/errors"
 )
 
 func main() {
@@ -157,7 +156,7 @@ func newSpeaker(engine string, logger *slog.Logger) (tts.Speaker, error) {
 	case "none":
 		return tts.NewLogSpeaker(logger), nil
 	default:
-		return nil, fmt.Errorf("unknown -tts %q (want espeak or none)", engine)
+		return nil, errors.Errorf("unknown -tts %q (want espeak or none)", engine)
 	}
 }
 

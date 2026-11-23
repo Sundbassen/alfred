@@ -1,3 +1,6 @@
+# --- Claude Code: personal settings (the rest of .claude/ is shared) ---
+.claude/settings.local.json
+
 # --- Sensitive: user voice recordings ---
 backend/.recordings/
 

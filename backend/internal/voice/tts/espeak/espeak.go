@@ -6,13 +6,13 @@ package espeak
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"log/slog"
 	"os/exec"
 	"strconv"
 	"strings"
 
 	"github.com/sundbassen/alfred/internal/voice/tts"
+	"gitlab.com/tozd/go/errors"
 )
 
 const binary = "espeak-ng"
@@ -35,7 +35,7 @@ type speaker struct {
 func New(config Config) (tts.Speaker, error) {
 	path, err := exec.LookPath(binary)
 	if err != nil {
-		return nil, fmt.Errorf("%s not found (install it, or run with -tts none): %w", binary, err)
+		return nil, errors.Errorf("%s not found (install it, or run with -tts none): %w", binary, err)
 	}
 	if config.Voice == "" {
 		config.Voice = "en-us"
@@ -61,7 +61,7 @@ func (s *speaker) Speak(ctx context.Context, text string) error {
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%s: %w: %s", binary, err, strings.TrimSpace(stderr.String()))
+		return errors.Errorf("%s: %w: %s", binary, err, strings.TrimSpace(stderr.String()))
 	}
 	return nil
 }

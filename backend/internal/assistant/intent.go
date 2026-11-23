@@ -7,7 +7,8 @@ package assistant
 
 import (
 	"context"
-	"errors"
+
+	"gitlab.com/tozd/go/errors"
 )
 
 // Intent is implemented by every concrete intent type, e.g.
@@ -57,7 +58,7 @@ type Middleware func(Handler) Handler
 
 // ErrUnknownIntent is returned by Router.Dispatch and Router.New for an
 // intent no handler is registered for.
-var ErrUnknownIntent = errors.New("unknown intent")
+var ErrUnknownIntent = errors.Base("unknown intent")
 
 // SpokenError is a failure the user should hear about, e.g. "I couldn't
 // find a room called attic". Handlers return it, wrapping the cause;

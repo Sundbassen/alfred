@@ -2,11 +2,11 @@ package app
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/sundbassen/alfred/internal/assistant"
 	"github.com/sundbassen/alfred/internal/assistant/match"
+	"gitlab.com/tozd/go/errors"
 )
 
 type greet struct{}

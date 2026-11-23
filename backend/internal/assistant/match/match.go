@@ -3,19 +3,19 @@
 package match
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 	"unicode"
 
 	"github.com/sundbassen/alfred/internal/assistant"
+	"gitlab.com/tozd/go/errors"
 )
 
 // DefaultThreshold is the minimum score for Recognize to report a match.
 const DefaultThreshold = 0.75
 
 // ErrNoMatch is matched (errors.Is) by every *NoMatchError.
-var ErrNoMatch = errors.New("no intent matched")
+var ErrNoMatch = errors.Base("no intent matched")
 
 // NoMatchError is returned by Recognize when no phrase scores at least the
 // threshold. Best is the closest candidate (zero if there was none), for
@@ -123,7 +123,7 @@ func (m *Matcher) Recognize(transcript string) (Result, error) {
 	normalized := normalize(transcript)
 	tokens := strings.Fields(normalized)
 	if len(tokens) == 0 {
-		return Result{}, &NoMatchError{}
+		return Result{}, errors.WithStack(&NoMatchError{})
 	}
 
 	var best Result
@@ -139,7 +139,7 @@ func (m *Matcher) Recognize(transcript string) (Result, error) {
 		}
 	}
 	if best.Name == "" || best.Score < m.Threshold {
-		return Result{}, &NoMatchError{Best: best}
+		return Result{}, errors.WithStack(&NoMatchError{Best: best})
 	}
 	return best, nil
 }

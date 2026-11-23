@@ -1,12 +1,12 @@
 package match
 
 import (
-	"errors"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/sundbassen/alfred/internal/assistant"
+	"gitlab.com/tozd/go/errors"
 )
 
 func TestNormalize(t *testing.T) {

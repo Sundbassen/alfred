@@ -2,10 +2,10 @@ package assistant
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"strings"
 	"testing"
+
+	"gitlab.com/tozd/go/errors"
 )
 
 type askTime struct{}
@@ -108,7 +108,7 @@ func TestSpokenText(t *testing.T) {
 		want string
 	}{
 		{&SpokenError{Text: "I can't reach the lights", Err: cause}, "I can't reach the lights"},
-		{fmt.Errorf("lights_on: %w", &SpokenError{Text: "No room called attic"}), "No room called attic"},
+		{errors.Errorf("lights_on: %w", &SpokenError{Text: "No room called attic"}), "No room called attic"},
 		{cause, FailedText},
 	}
 	for _, tt := range tests {

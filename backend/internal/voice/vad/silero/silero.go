@@ -6,13 +6,13 @@ package silero
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 
 	"github.com/sundbassen/alfred/internal/platform/onnxrt"
 	"github.com/sundbassen/alfred/internal/platform/pcm"
 	"github.com/sundbassen/alfred/internal/voice"
 	ort "github.com/yalue/onnxruntime_go"
+	"gitlab.com/tozd/go/errors"
 )
 
 // Silero VAD v5 parameters at 16 kHz: the model scores 512-sample windows,
@@ -59,16 +59,16 @@ type detector struct {
 
 func New(config Config) (voice.SilenceDetector, error) {
 	if config.SampleRate != supportedRate {
-		return nil, fmt.Errorf("silero VAD supports %d Hz, got %d", supportedRate, config.SampleRate)
+		return nil, errors.Errorf("silero VAD supports %d Hz, got %d", supportedRate, config.SampleRate)
 	}
 	if err := onnxrt.Init(config.OnnxRuntimeLibPath); err != nil {
-		return nil, fmt.Errorf("initialize ONNX runtime (%s): %w", config.OnnxRuntimeLibPath, err)
+		return nil, errors.Errorf("initialize ONNX runtime (%s): %w", config.OnnxRuntimeLibPath, err)
 	}
 
 	session, err := ort.NewDynamicAdvancedSession(config.ModelPath,
 		[]string{"input", "state", "sr"}, []string{"output", "stateN"}, nil)
 	if err != nil {
-		return nil, fmt.Errorf("load silero VAD model: %w", err)
+		return nil, errors.Errorf("load silero VAD model: %w", err)
 	}
 
 	sr, err := ort.NewScalar(int64(supportedRate))

@@ -25,10 +25,12 @@ func main() {
 		"save wake word clips, near misses and commands as wav files in .recordings (for training and debugging)")
 	nearMiss := flag.Float64("near-miss", 0.005,
 		"with -save, wake word score from which an undetected utterance is saved as a near miss")
+	verbose := flag.Bool("v", false,
+		"verbose: debug logs (audio level and wake word score stats every ~5 s) and whisper.cpp output")
 	flag.Parse()
 
 	// Create logger
-	logger := logging.New()
+	logger := logging.New(*verbose)
 
 	speaker, err := newSpeaker(*ttsEngine, logger)
 	if err != nil {
@@ -51,6 +53,7 @@ func main() {
 		pipeline.Options{
 			VAD:               *vad,
 			Commands:          commands,
+			Verbose:           *verbose,
 			SaveDir:           saveDir(*save),
 			NearMissThreshold: float32(*nearMiss),
 		}, logger)

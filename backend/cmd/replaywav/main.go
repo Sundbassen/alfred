@@ -30,13 +30,15 @@ func main() {
 	speed := flag.Float64("speed", 1, "playback speed multiple of real time")
 	tailMs := flag.Int("tail", 2000, "milliseconds of silence appended so the final command is endpointed")
 	save := flag.String("save", "", "save wake word clips, near misses and commands under this directory")
+	verbose := flag.Bool("v", false,
+		"verbose: debug logs (audio level and wake word score stats every ~5 s) and whisper.cpp output")
 	flag.Parse()
 	if flag.NArg() != 1 {
 		fmt.Fprintln(os.Stderr, "usage: replaywav [flags] file.wav")
 		os.Exit(2)
 	}
 
-	logger := logging.New()
+	logger := logging.New(*verbose)
 
 	data, err := wav.Read(flag.Arg(0), pipeline.SampleRate)
 	if err != nil {
@@ -46,7 +48,7 @@ func main() {
 	data = append(data, make([]byte, *tailMs*pipeline.SampleRate/1000*2)...)
 
 	commands := pipeline.Commands()
-	service, cleanup, err := pipeline.New(pipeline.Options{VAD: *vad, Commands: commands, SaveDir: *save}, logger)
+	service, cleanup, err := pipeline.New(pipeline.Options{VAD: *vad, Commands: commands, SaveDir: *save, Verbose: *verbose}, logger)
 	if err != nil {
 		logger.Error("Failed to create speech pipeline", slog.Any("error", err))
 		os.Exit(1)

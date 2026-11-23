@@ -1,4 +1,4 @@
-// Package clock implements the "what time is it" assistant.
+// Package clock tells the time: the "time" intent.
 package clock
 
 import (
@@ -9,33 +9,34 @@ import (
 	"github.com/sundbassen/alfred/internal/assistant"
 )
 
-type clock struct {
+// AskTime is the intent "what time is it".
+type AskTime struct{}
+
+func (AskTime) IntentName() string { return "time" }
+
+// Register adds the clock's intents to r.
+func Register(r *assistant.Router) {
+	register(r, time.Now)
+}
+
+func register(r *assistant.Router, now func() time.Time) {
+	h := &handler{now: now}
+	assistant.Handle(r, assistant.Spec{
+		Description: "Tell the current local time",
+		Phrases: []string{
+			"what time is it",
+			"what is the time",
+			"what is the time now",
+			"tell me the time",
+			"current time",
+		},
+	}, h.askTime)
+}
+
+type handler struct {
 	now func() time.Time
 }
 
-// New returns the command that tells the current local time.
-func New() assistant.Command {
-	return newWithNow(time.Now)
-}
-
-func newWithNow(now func() time.Time) assistant.Command {
-	return &clock{now: now}
-}
-
-func (c *clock) ID() string { return "time" }
-
-func (c *clock) Description() string { return "Tell the current local time" }
-
-func (c *clock) Phrases() []string {
-	return []string{
-		"what time is it",
-		"what is the time",
-		"what is the time now",
-		"tell me the time",
-		"current time",
-	}
-}
-
-func (c *clock) Execute(ctx context.Context, req assistant.Request) (assistant.Response, error) {
-	return assistant.Response{Text: fmt.Sprintf("It's %s.", c.now().Format("15:04"))}, nil
+func (h *handler) askTime(ctx context.Context, _ AskTime) (assistant.Response, error) {
+	return assistant.Response{Text: fmt.Sprintf("It's %s.", h.now().Format("15:04"))}, nil
 }

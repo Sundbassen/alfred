@@ -1,71 +1,77 @@
-package assistant
+// Package match recognizes intents locally by matching transcripts against
+// the example phrases of the registered intents.
+package match
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
 	"unicode"
+
+	"github.com/sundbassen/alfred/internal/assistant"
 )
 
-// DefaultThreshold is the minimum match score for a command to be executed.
+// DefaultThreshold is the minimum score for Recognize to report a match.
 const DefaultThreshold = 0.75
 
-// ErrNoMatch is returned by Handle when no command matches the transcript
-// confidently. This is where the cloud LLM fallback will plug in.
-var ErrNoMatch = errors.New("no command matched")
+// ErrNoMatch is matched (errors.Is) by every *NoMatchError.
+var ErrNoMatch = errors.New("no intent matched")
 
-// Match is the best command match for a transcript.
-type Match struct {
-	Command Command // nil when the registry is empty or the transcript has no words
-	Phrase  string  // the phrase that matched best
-	Score   float64 // 0..1; 1 is an exact match after normalization
+// NoMatchError is returned by Recognize when no phrase scores at least the
+// threshold. Best is the closest candidate (zero if there was none), for
+// logging near misses.
+type NoMatchError struct {
+	Best Result
 }
 
-// Registry holds the known commands and matches transcripts against their
-// phrases.
-type Registry struct {
-	// Threshold is the minimum score for Match to report a match.
+func (e *NoMatchError) Error() string {
+	if e.Best.Name == "" {
+		return ErrNoMatch.Error()
+	}
+	return fmt.Sprintf("%s (best: %s %.2f)", ErrNoMatch, e.Best.Name, e.Best.Score)
+}
+
+func (e *NoMatchError) Is(target error) bool { return target == ErrNoMatch }
+
+// Result is the best phrase match for a transcript.
+type Result struct {
+	Name   string  // intent name; empty when there are no phrases or the transcript has no words
+	Phrase string  // the phrase that matched best
+	Score  float64 // 0..1; 1 is an exact match after normalization
+}
+
+// Matcher recognizes intents by matching transcripts against their example
+// phrases: normalization, then an exact match or token overlap (Dice).
+type Matcher struct {
+	// Threshold is the minimum score for Recognize to report a match.
 	Threshold float64
 
-	commands []Command
-	phrases  []phrase
+	phrases []phrase
 }
 
 type phrase struct {
-	command    Command
+	intent     string
 	text       string
 	normalized string
 	tokens     []string
 }
 
-// NewRegistry builds a registry of the given commands. It panics on a
-// duplicate command ID, which is a programming error.
-func NewRegistry(cmds ...Command) *Registry {
-	r := &Registry{Threshold: DefaultThreshold}
-	seen := make(map[string]bool)
-	for _, cmd := range cmds {
-		if seen[cmd.ID()] {
-			panic(fmt.Sprintf("command: duplicate command ID %q", cmd.ID()))
-		}
-		seen[cmd.ID()] = true
-		r.commands = append(r.commands, cmd)
-		for _, text := range cmd.Phrases() {
+// New builds a matcher over the phrases of the given intents (from
+// assistant.Router.Intents).
+func New(routes []assistant.Route) *Matcher {
+	m := &Matcher{Threshold: DefaultThreshold}
+	for _, rt := range routes {
+		for _, text := range rt.Spec.Phrases {
 			normalized := normalize(text)
-			r.phrases = append(r.phrases, phrase{
-				command:    cmd,
+			m.phrases = append(m.phrases, phrase{
+				intent:     rt.Name,
 				text:       text,
 				normalized: normalized,
 				tokens:     strings.Fields(normalized),
 			})
 		}
 	}
-	return r
-}
-
-// Commands returns the registered commands in registration order.
-func (r *Registry) Commands() []Command {
-	return r.commands
+	return m
 }
 
 // maxPromptWords caps Prompt so it stays well inside whisper's prompt
@@ -81,11 +87,11 @@ const maxPromptWords = 150
 // prompt, and after a list prompt greedy decoding looped ("what time is it,
 // what is it, what is it, ...") until the temperature fallback rescued it
 // at ~10x the latency.
-func (r *Registry) Prompt() string {
+func (m *Matcher) Prompt() string {
 	var sentences []string
 	seen := make(map[string]bool)
 	words := 0
-	for _, p := range r.phrases {
+	for _, p := range m.phrases {
 		text := strings.TrimSpace(strings.ToLower(p.text))
 		if text == "" || seen[text] {
 			continue
@@ -111,17 +117,17 @@ var questionWords = map[string]bool{
 	"is": true, "are": true, "can": true, "could": true, "do": true, "does": true, "will": true,
 }
 
-// Match returns the best matching command phrase for the transcript. ok
-// reports whether its score reaches the threshold; the best candidate is
-// returned either way, for logging near misses.
-func (r *Registry) Match(transcript string) (best Match, ok bool) {
+// Recognize returns the intent whose phrase best matches the transcript,
+// or a *NoMatchError if no phrase scores at least the threshold.
+func (m *Matcher) Recognize(transcript string) (Result, error) {
 	normalized := normalize(transcript)
 	tokens := strings.Fields(normalized)
 	if len(tokens) == 0 {
-		return Match{}, false
+		return Result{}, &NoMatchError{}
 	}
 
-	for _, p := range r.phrases {
+	var best Result
+	for _, p := range m.phrases {
 		var score float64
 		if p.normalized == normalized {
 			score = 1
@@ -129,24 +135,13 @@ func (r *Registry) Match(transcript string) (best Match, ok bool) {
 			score = dice(tokens, p.tokens)
 		}
 		if score > best.Score {
-			best = Match{Command: p.command, Phrase: p.text, Score: score}
+			best = Result{Name: p.intent, Phrase: p.text, Score: score}
 		}
 	}
-	return best, best.Command != nil && best.Score >= r.Threshold
-}
-
-// Handle matches the transcript and executes the matched command. It
-// returns ErrNoMatch (with the best near miss) when nothing matches.
-func (r *Registry) Handle(ctx context.Context, transcript string) (Response, Match, error) {
-	match, ok := r.Match(transcript)
-	if !ok {
-		return Response{}, match, ErrNoMatch
+	if best.Name == "" || best.Score < m.Threshold {
+		return Result{}, &NoMatchError{Best: best}
 	}
-	resp, err := match.Command.Execute(ctx, Request{Transcript: transcript})
-	if err != nil {
-		return Response{}, match, fmt.Errorf("execute %s: %w", match.Command.ID(), err)
-	}
-	return resp, match, nil
+	return best, nil
 }
 
 var contractions = map[string]string{

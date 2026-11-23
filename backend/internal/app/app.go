@@ -1,5 +1,6 @@
 // Package app wires Alfred together: the voice framework (internal/voice)
-// and the registered commands (internal/commands, via Commands). Shared by
+// and the registered commands (internal/commands, via Router and
+// Assistant). Shared by
 // the live app (cmd/alfred) and the offline replay harness (cmd/replaywav).
 package app
 
@@ -8,8 +9,6 @@ import (
 	"log/slog"
 
 	"github.com/ggerganov/whisper.cpp/bindings/go/pkg/whisper"
-	"github.com/sundbassen/alfred/internal/assistant"
-	"github.com/sundbassen/alfred/internal/commands/clock"
 	"github.com/sundbassen/alfred/internal/platform/onnxrt"
 	"github.com/sundbassen/alfred/internal/voice"
 	"github.com/sundbassen/alfred/internal/voice/listener"
@@ -33,9 +32,9 @@ const (
 type Options struct {
 	// VAD selects the silence detector: "rms" (adaptive RMS) or "silero".
 	VAD string
-	// Commands, if set, biases transcription toward their phrases via
-	// whisper's initial prompt.
-	Commands *assistant.Registry
+	// Prompt, if set, biases transcription toward the command phrases via
+	// whisper's initial prompt (Assistant.Prompt).
+	Prompt string
 	// SaveDir, if set, saves wake word clips, near misses and commands
 	// under this directory (see internal/voice/recorder).
 	SaveDir string
@@ -45,14 +44,6 @@ type Options struct {
 	// Verbose keeps whisper.cpp's own log output (model loading details),
 	// which is discarded otherwise.
 	Verbose bool
-}
-
-// Commands returns the registry of everything Alfred can do. Register new
-// commands here.
-func Commands() *assistant.Registry {
-	return assistant.NewRegistry(
-		clock.New(),
-	)
 }
 
 // New builds the speech-to-text service. The returned cleanup releases the
@@ -87,16 +78,12 @@ func New(opts Options, logger *slog.Logger) (listener.Service, func(), error) {
 	}
 	cleanup := func() { model.Close() }
 
-	var prompt string
-	if opts.Commands != nil {
-		prompt = opts.Commands.Prompt()
-	}
 	processor := stt.New(stt.Config{
 		Model:         model,
 		Language:      "en",
 		SampleRate:    SampleRate,
 		Logger:        logger,
-		InitialPrompt: prompt,
+		InitialPrompt: opts.Prompt,
 	})
 	if processor == nil {
 		cleanup()

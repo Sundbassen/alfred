@@ -6,13 +6,14 @@ import (
 	"time"
 
 	"github.com/sundbassen/alfred/internal/assistant"
+	"github.com/sundbassen/alfred/internal/assistant/match"
 )
 
-func TestExecute(t *testing.T) {
-	fixed := time.Date(2026, 11, 23, 9, 5, 0, 0, time.Local)
-	cmd := newWithNow(func() time.Time { return fixed })
+func TestAskTime(t *testing.T) {
+	r := assistant.NewRouter()
+	register(r, func() time.Time { return time.Date(2026, 11, 23, 9, 5, 0, 0, time.Local) })
 
-	resp, err := cmd.Execute(context.Background(), assistant.Request{Transcript: "what time is it"})
+	resp, err := r.Dispatch(context.Background(), AskTime{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,16 +22,18 @@ func TestExecute(t *testing.T) {
 	}
 }
 
-func TestPhrasesMatchInRegistry(t *testing.T) {
-	registry := assistant.NewRegistry(New())
+func TestPhrasesAreRecognized(t *testing.T) {
+	r := assistant.NewRouter()
+	Register(r)
+	m := match.New(r.Intents())
 	for _, transcript := range []string{
 		" What time is it?",
 		"Hey Alfred, what's the time?",
 		"Tell me the time, please.",
 	} {
-		match, ok := registry.Match(transcript)
-		if !ok || match.Command.ID() != "time" {
-			t.Errorf("Match(%q) = %+v, %v; want time command", transcript, match, ok)
+		res, err := m.Recognize(transcript)
+		if err != nil || res.Name != (AskTime{}).IntentName() {
+			t.Errorf("Recognize(%q) = %+v, %v; want time", transcript, res, err)
 		}
 	}
 }

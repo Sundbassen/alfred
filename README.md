@@ -104,9 +104,10 @@ The measurement protocol is in [#3](https://github.com/Sundbassen/alfred/issues/
 | `voice/stt` | whisper.cpp transcription |
 | `voice/vad` | silence detection (adaptive RMS; `vad/silero`: Silero VAD) |
 | `voice/mic`, `voice/tts`, `voice/recorder` | microphone, spoken replies, saving audio |
-| `assistant/` | the `Command` interface, registry and phrase matcher |
-| `commands/` | one package per command; `clock` is the first |
-| `app/` | wires voice, assistant and commands together; `app.Commands()` lists the registered commands |
+| `assistant/` | intents and the router: each intent is a Go type, `assistant.Handle[I]` registers its handler, middleware wraps them |
+| `assistant/match` | the local recognizer: matches transcripts against each intent's example phrases |
+| `commands/` | one package per command, each with a `Register(router, services...)`; `clock` is the first |
+| `app/` | wires voice, assistant and commands together; `app.Router()` is the one list of registered commands |
 | `platform/` | shared helpers: PCM/wav, ONNX Runtime, logging |
 
 Development tools live in `backend/cmd/` (`replaywav`, `reviewrecordings`, `wakestats`, `micdebug`); training is in `trainwakeword/`.

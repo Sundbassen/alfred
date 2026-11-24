@@ -32,6 +32,7 @@ Unrecognized requests get "Sorry, I didn't catch that." A cloud LLM fallback for
 - Linux (the mic goes through [miniaudio](https://miniaud.io/) via malgo; developed on Manjaro with PipeWire)
 - Go ≥ 1.25, a C/C++ toolchain, cmake, git, curl
 - `espeak-ng` for spoken replies (or run with `-tts none`)
+- `paplay` (PulseAudio or PipeWire's pulse utilities; `libpulse` on Arch) for the timer chime; without it timers only speak
 - `pw-play` (PipeWire) for the review tool
 - Python 3.11 and, ideally, an NVIDIA GPU for training the wake word model
 

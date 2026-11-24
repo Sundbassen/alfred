@@ -49,7 +49,7 @@ export ALFRED_ONNXRUNTIME_LIB := $(ONNXRUNTIME_DIR)/lib/libonnxruntime.so
 # Install system prerequisites
 prereqs:
 	@echo "Installing system prerequisites..."
-	@echo "To be able to run this project you need to install cmake base-devel go curl git espeak-ng"
+	@echo "To be able to run this project you need to install cmake base-devel go curl git espeak-ng libpulse"
 
 # Install dependencies
 install:

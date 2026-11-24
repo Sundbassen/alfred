@@ -31,6 +31,8 @@ import (
 	"github.com/sundbassen/alfred/skills/stop"
 	"github.com/sundbassen/alfred/skills/volume"
 	"github.com/sundbassen/alfred/skills/volume/volumeservice"
+	"github.com/sundbassen/alfred/skills/weather"
+	"github.com/sundbassen/alfred/skills/weather/weatherservice"
 )
 
 // Config holds the skill providers' and recognizers' settings.
@@ -41,6 +43,9 @@ type Config struct {
 	Spotify musicservice.SpotifyConfig
 	// Volume for the volume skill; an empty Path (no wpctl) disables it.
 	Volume volumeservice.WpctlConfig
+	// Weather is the speaker's location for the weather skill; nil (no
+	// coordinates configured) disables it.
+	Weather *weatherservice.OpenMeteoConfig
 	// IntentModel is the local model recognizing what the phrase
 	// templates miss; a missing model file disables it.
 	IntentModel IntentModelConfig
@@ -61,13 +66,17 @@ type IntentModelConfig struct {
 //	ALFRED_SPOTIFY_TOKEN_FILE  login from make spotify-login (default ~/.config/alfred/spotify-token.json)
 //	ALFRED_SPOTIFY_DEVICE      Spotify Connect name of this speaker (default "Alfred")
 //	ALFRED_WPCTL               wpctl binary for the volume skill (default: wpctl on PATH; not found: no volume skill)
+//	ALFRED_WEATHER_LATITUDE    the speaker's location for the weather, e.g. 55.6761 (unset: no weather skill)
+//	ALFRED_WEATHER_LONGITUDE   e.g. 12.5683
+//	ALFRED_WEATHER_PLACE       optional name said in weather answers, e.g. "Copenhagen"
 //	ALFRED_LLAMA_SERVER        llama-server binary (default .deps/llama.cpp/build-server/bin/llama-server; set by make)
 //	ALFRED_INTENT_MODEL_FILE   local intent model (default models/llm/<Ministral GGUF>; missing: no model tier)
 //	ALFRED_INTENT_MODEL_THREADS  CPU threads for the model (default 4)
 //	ALFRED_INTENT_MODEL_TIMEOUT  per recognition, e.g. "3s" (default 3s)
 func ConfigFromEnv() Config {
 	return Config{
-		DB: envOr("ALFRED_DB", store.DefaultPath()),
+		DB:      envOr("ALFRED_DB", store.DefaultPath()),
+		Weather: weatherFromEnv(),
 		Spotify: musicservice.SpotifyConfig{
 			ClientID:  os.Getenv("ALFRED_SPOTIFY_CLIENT_ID"),
 			TokenFile: envOr("ALFRED_SPOTIFY_TOKEN_FILE", musicservice.DefaultSpotifyTokenFile()),
@@ -105,6 +114,12 @@ func RegisterSkills(ctx context.Context, r *assistant.Router, cfg Config, out *a
 
 	// Lists live in the local database until the cloud backend (#39).
 	lists.Register(r, listsstore.New(db))
+
+	if cfg.Weather == nil {
+		logger.Info("Weather skill disabled: set ALFRED_WEATHER_LATITUDE and ALFRED_WEATHER_LONGITUDE")
+	} else {
+		weather.Register(r, weatherservice.NewOpenMeteo(*cfg.Weather), cfg.Weather.Place)
+	}
 
 	player, err := registerMusic(r, cfg.Spotify, logger)
 	if err != nil {
@@ -164,6 +179,17 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// weatherFromEnv reads the weather location; nil unless both coordinates
+// are set and valid.
+func weatherFromEnv() *weatherservice.OpenMeteoConfig {
+	lat, err1 := strconv.ParseFloat(os.Getenv("ALFRED_WEATHER_LATITUDE"), 64)
+	lon, err2 := strconv.ParseFloat(os.Getenv("ALFRED_WEATHER_LONGITUDE"), 64)
+	if err1 != nil || err2 != nil || lat < -90 || lat > 90 || lon < -180 || lon > 180 {
+		return nil
+	}
+	return &weatherservice.OpenMeteoConfig{Latitude: lat, Longitude: lon, Place: os.Getenv("ALFRED_WEATHER_PLACE")}
 }
 
 func envInt(key string, def int) int {

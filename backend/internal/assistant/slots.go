@@ -81,6 +81,28 @@ func Fill(intent Intent, slots map[string]string) (Intent, error) {
 	return filled.Interface().(Intent), nil
 }
 
+// SetSlot returns a copy of intent with one slot set to value, e.g. the
+// answer to a follow-up Question. It returns a fault.ErrInvalidValue if
+// the intent has no such slot.
+func SetSlot(intent Intent, slot, value string) (Intent, error) {
+	v := reflect.ValueOf(intent)
+	if v.Kind() != reflect.Struct {
+		return nil, errors.WithMessagef(fault.ErrUnexpectedType, "intent %T is not a struct", intent)
+	}
+	fields, err := slotFields(v.Type())
+	if err != nil {
+		return nil, err
+	}
+	field, ok := fields[slot]
+	if !ok {
+		return nil, errors.WithMessagef(fault.ErrInvalidValue, "intent %q has no slot %q", intent.IntentName(), slot)
+	}
+	set := reflect.New(v.Type()).Elem()
+	set.Set(v)
+	set.Field(field.index).SetString(value)
+	return set.Interface().(Intent), nil
+}
+
 // slotFields maps slot names to the fields of an intent struct type.
 func slotFields(t reflect.Type) (map[string]slotField, error) {
 	fields := make(map[string]slotField)

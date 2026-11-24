@@ -2,10 +2,14 @@ package app
 
 import (
 	"context"
+	"strings"
+	"sync"
+	"time"
 
 	"gitlab.com/tozd/go/errors"
 
 	"github.com/sundbassen/alfred/internal/assistant"
+	"github.com/sundbassen/alfred/internal/assistant/match"
 	"github.com/sundbassen/alfred/internal/platform/fault"
 )
 
@@ -24,21 +28,39 @@ type Recognizer interface {
 // Assistant answers transcripts: it recognizes the intent, trying its
 // recognizers in order (cheapest first, e.g. phrase templates, then a
 // local model), and dispatches the first recognition to its handler.
+//
+// When a handler asks a follow-up question (assistant.Response.Ask), the
+// next transcript within QuestionTTL answers it, unless the first
+// recognizer (the templates) matches it fully as a command of its own.
 type Assistant struct {
 	router      *assistant.Router
 	recognizers []Recognizer
+	now         func() time.Time
+
+	mu       sync.Mutex
+	question *assistant.Question // pending follow-up question
+	askedAt  time.Time
 }
+
+// QuestionTTL is how long a follow-up question waits for its answer.
+const QuestionTTL = 15 * time.Second
+
+// FollowUpBy is the Recognition.By of an answer to a follow-up question.
+const FollowUpBy = "follow-up"
 
 // NewAssistant builds an assistant over the router's intents with the
 // given recognizers, tried in order.
 func NewAssistant(r *assistant.Router, recognizers ...Recognizer) *Assistant {
-	return &Assistant{router: r, recognizers: recognizers}
+	return &Assistant{router: r, recognizers: recognizers, now: time.Now}
 }
 
 // Reply is the answer to one transcript.
 type Reply struct {
 	Text        string                // what to say
 	Recognition assistant.Recognition // what was understood, and by which recognizer
+	// Listen is set when Text asks a question: the front end should listen
+	// for the answer without the wake word.
+	Listen bool
 }
 
 // Respond recognizes the transcript's intent and runs its handler. It
@@ -49,6 +71,13 @@ type Reply struct {
 //   - otherwise the handler's error, wrapped with the intent name
 //     (assistant.SpokenText says what to tell the user).
 func (a *Assistant) Respond(ctx context.Context, transcript string) (*Reply, error) {
+	if q := a.takeQuestion(); q != nil {
+		reply, answered, err := a.answer(ctx, *q, transcript)
+		if answered {
+			return reply, err
+		}
+	}
+
 	rec, err := a.recognize(ctx, transcript)
 	if err != nil {
 		return nil, err
@@ -62,11 +91,83 @@ func (a *Assistant) Respond(ctx context.Context, transcript string) (*Reply, err
 	if err != nil {
 		return nil, err
 	}
+	return a.dispatch(ctx, intent, rec)
+}
+
+// dispatch runs the intent's handler and keeps a follow-up question it asks.
+func (a *Assistant) dispatch(ctx context.Context, intent assistant.Intent, rec assistant.Recognition) (*Reply, error) {
 	resp, err := a.router.Dispatch(ctx, intent)
 	if err != nil {
 		return nil, errors.WithMessage(err, rec.Intent)
 	}
-	return &Reply{Text: resp.Text, Recognition: rec}, nil
+	reply := &Reply{Text: resp.Text, Recognition: rec}
+	if resp.Ask != nil && resp.Ask.Intent != nil {
+		a.mu.Lock()
+		a.question, a.askedAt = resp.Ask, a.now()
+		a.mu.Unlock()
+		reply.Listen = true
+	}
+	return reply, nil
+}
+
+// takeQuestion returns and clears the pending question, if it hasn't
+// expired. Any transcript clears it: it is answered once or not at all.
+func (a *Assistant) takeQuestion() *assistant.Question {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	q := a.question
+	a.question = nil
+	if q == nil || a.now().Sub(a.askedAt) > QuestionTTL {
+		return nil
+	}
+	return q
+}
+
+// answer treats the transcript as the answer to q. It reports answered =
+// false when the transcript is a command of its own (a full match by the
+// first recognizer, the templates) or not an answer at all (anything but
+// yes or no to a yes/no question); Respond then handles it as usual.
+func (a *Assistant) answer(ctx context.Context, q assistant.Question, transcript string) (*Reply, bool, error) {
+	if len(a.recognizers) > 0 {
+		if rec, err := a.recognizers[0].Recognize(ctx, transcript); err == nil && rec.Score >= 1 {
+			return nil, false, nil
+		}
+	}
+	words := match.Normalize(transcript)
+	rec := assistant.Recognition{Intent: q.Intent.IntentName(), Phrase: transcript, Score: 1, By: FollowUpBy}
+	if isNo(words) {
+		return &Reply{Text: "OK.", Recognition: rec}, true, nil
+	}
+	intent := q.Intent
+	if q.Slot == "" {
+		if !isYes(words) {
+			return nil, false, nil
+		}
+	} else {
+		var err error
+		if intent, err = assistant.SetSlot(intent, q.Slot, words); err != nil {
+			return nil, true, err
+		}
+		rec.Slots = map[string]string{q.Slot: words}
+	}
+	reply, err := a.dispatch(ctx, intent, rec)
+	return reply, true, err
+}
+
+var (
+	yesWords = map[string]bool{"yes": true, "yeah": true, "yep": true, "yup": true, "sure": true,
+		"ok": true, "okay": true, "please": true, "correct": true, "right": true, "absolutely": true}
+	noWords = map[string]bool{"no": true, "nope": true, "nah": true}
+)
+
+func isYes(words string) bool {
+	fields := strings.Fields(words)
+	return len(fields) > 0 && (yesWords[fields[0]] || words == "do it" || words == "go ahead")
+}
+
+func isNo(words string) bool {
+	fields := strings.Fields(words)
+	return len(fields) > 0 && (noWords[fields[0]] || words == "do not" || words == "not now")
 }
 
 // recognize returns the first recognition. A miss, an unavailable or a

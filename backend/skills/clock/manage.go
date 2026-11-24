@@ -74,6 +74,7 @@ var kindWords = map[string]Kind{
 var selectionFiller = map[string]bool{
 	"the": true, "my": true, "a": true, "an": true, "it": true, "that": true, "this": true, "one": true,
 	"for": true, "to": true, "about": true, "set": true, "of": true, "and": true, "any": true, "on": true,
+	"them": true, "both": true,
 }
 
 func parseSelection(what string) selection {
@@ -160,10 +161,11 @@ func (h *handler) cancelTimer(ctx context.Context, i CancelTimer) (assistant.Res
 		for i, e := range matched {
 			names[i] = e.name(now)
 		}
-		return assistant.Response{}, &assistant.SpokenError{
+		// The answer ("the 10 minute one", "all of them") is a new What.
+		return assistant.Response{
 			Text: fmt.Sprintf("You have %d: %s. Which one?", len(matched), spoken.JoinAnd(names)),
-			Err:  errors.WithMessagef(fault.ErrInvalidValue, "%q matches %d timers", i.What, len(matched)),
-		}
+			Ask:  &assistant.Question{Intent: CancelTimer{}, Slot: "what"},
+		}, nil
 	}
 
 	ids := make([]int64, len(matched))

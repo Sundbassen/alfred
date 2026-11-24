@@ -26,12 +26,18 @@ type Service interface {
 
 	// TranscriptChannel returns a channel that receives transcription results
 	TranscriptChannel() <-chan voice.Transcript
+
+	// Listen records the next command without the wake word, e.g. the
+	// answer to a question Alfred just asked. If no speech starts within the
+	// command timeout, it goes back to waiting for the wake word.
+	Listen()
 }
 
 // service is the private implementation of Service
 type service struct {
 	transcriptChan  chan voice.Transcript
 	audioChan       chan []byte
+	listenChan      chan struct{}
 	isRunning       bool
 	language        string
 	sampleRate      int
@@ -103,6 +109,7 @@ func New(config Config, logger *slog.Logger) (Service, error) {
 	service := &service{
 		transcriptChan:  make(chan voice.Transcript, config.BufferSize),
 		audioChan:       make(chan []byte, config.BufferSize),
+		listenChan:      make(chan struct{}, 1),
 		isRunning:       false,
 		language:        config.Language,
 		sampleRate:      config.SampleRate,
@@ -180,6 +187,15 @@ func (s *service) TranscriptChannel() <-chan voice.Transcript {
 	return s.transcriptChan
 }
 
+// Listen asks the command loop to record the next command without the wake
+// word.
+func (s *service) Listen() {
+	select {
+	case s.listenChan <- struct{}{}:
+	default: // already requested
+	}
+}
+
 func withDefault(v, def int) int {
 	if v == 0 {
 		return def
@@ -203,6 +219,8 @@ func (s *service) commandLoop(ctx context.Context) {
 				return
 			}
 			controller.handle(ctx, audioData)
+		case <-s.listenChan:
+			controller.followUp()
 		}
 	}
 }

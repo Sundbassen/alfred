@@ -155,6 +155,12 @@ func main() {
 					slog.Float64("score", reply.Recognition.Score),
 					slog.String("text", reply.Text))
 				say(ctx, out, logger, reply.Text)
+				if reply.Listen {
+					// Alfred asked something: take the answer without the
+					// wake word (speaking has finished, so it won't hear
+					// itself).
+					sttService.Listen()
+				}
 			}
 		}
 		logger.Info("Transcript channel closed")

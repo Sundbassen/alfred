@@ -200,6 +200,19 @@ func tail(data []byte, n int) []byte {
 	return append([]byte(nil), data[max(0, len(data)-n):]...)
 }
 
+// followUp starts recording a command without the wake word, e.g. the
+// answer to a question Alfred just asked. It does nothing while a command
+// is already being recorded.
+func (c *commandController) followUp() {
+	if c.phase != phaseListening {
+		return
+	}
+	c.lookback = nil
+	c.activator.Reset()
+	c.startCommand()
+	c.logger.Info("Listening for an answer without the wake word")
+}
+
 func (c *commandController) startCommand() {
 	c.phase = phaseCommand
 	c.firstChunk = true

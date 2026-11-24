@@ -7,20 +7,35 @@ package wiring
 import (
 	"log/slog"
 	"os"
+	"path/filepath"
+	"strconv"
+	"time"
 
 	"gitlab.com/tozd/go/errors"
 
 	"github.com/sundbassen/alfred/internal/assistant"
+	"github.com/sundbassen/alfred/internal/llm/ministral"
 	"github.com/sundbassen/alfred/internal/platform/fault"
 	"github.com/sundbassen/alfred/skills/clock"
 	"github.com/sundbassen/alfred/skills/music"
 	"github.com/sundbassen/alfred/skills/music/musicservice"
 )
 
-// Config holds the skill providers' settings.
+// Config holds the skill providers' and recognizers' settings.
 type Config struct {
 	// Spotify for the music skill; an empty ClientID disables it.
 	Spotify musicservice.SpotifyConfig
+	// IntentModel is the local model recognizing what the phrase
+	// templates miss; a missing model file disables it.
+	IntentModel IntentModelConfig
+}
+
+// IntentModelConfig configures the local intent model (llama-server).
+type IntentModelConfig struct {
+	Server    string        // llama-server binary
+	ModelFile string        // GGUF model file
+	Threads   int           // CPU threads for the model
+	Timeout   time.Duration // per recognition; slower answers fall through
 }
 
 // ConfigFromEnv reads Config from the environment:
@@ -28,12 +43,22 @@ type Config struct {
 //	ALFRED_SPOTIFY_CLIENT_ID   Spotify app client ID (empty: no music skill)
 //	ALFRED_SPOTIFY_TOKEN_FILE  login from make spotify-login (default ~/.config/alfred/spotify-token.json)
 //	ALFRED_SPOTIFY_DEVICE      Spotify Connect name of this speaker (default "Alfred")
+//	ALFRED_LLAMA_SERVER        llama-server binary (default .deps/llama.cpp/build-server/bin/llama-server; set by make)
+//	ALFRED_INTENT_MODEL_FILE   local intent model (default models/llm/<Ministral GGUF>; missing: no model tier)
+//	ALFRED_INTENT_MODEL_THREADS  CPU threads for the model (default 4)
+//	ALFRED_INTENT_MODEL_TIMEOUT  per recognition, e.g. "3s" (default 3s)
 func ConfigFromEnv() Config {
 	return Config{
 		Spotify: musicservice.SpotifyConfig{
 			ClientID:  os.Getenv("ALFRED_SPOTIFY_CLIENT_ID"),
 			TokenFile: envOr("ALFRED_SPOTIFY_TOKEN_FILE", musicservice.DefaultSpotifyTokenFile()),
 			Device:    envOr("ALFRED_SPOTIFY_DEVICE", "Alfred"),
+		},
+		IntentModel: IntentModelConfig{
+			Server:    envOr("ALFRED_LLAMA_SERVER", ".deps/llama.cpp/build-server/bin/llama-server"),
+			ModelFile: envOr("ALFRED_INTENT_MODEL_FILE", filepath.Join("models", "llm", ministral.ModelFile)),
+			Threads:   envInt("ALFRED_INTENT_MODEL_THREADS", 4),
+			Timeout:   envDuration("ALFRED_INTENT_MODEL_TIMEOUT", 3*time.Second),
 		},
 	}
 }
@@ -74,6 +99,20 @@ func registerMusic(r *assistant.Router, cfg musicservice.SpotifyConfig, logger *
 func envOr(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
+	}
+	return def
+}
+
+func envInt(key string, def int) int {
+	if n, err := strconv.Atoi(os.Getenv(key)); err == nil && n > 0 {
+		return n
+	}
+	return def
+}
+
+func envDuration(key string, def time.Duration) time.Duration {
+	if d, err := time.ParseDuration(os.Getenv(key)); err == nil && d > 0 {
+		return d
 	}
 	return def
 }

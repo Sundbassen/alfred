@@ -92,6 +92,23 @@ Reviewed clips feed back into training:
 
 The measurement protocol is in [#3](https://github.com/Sundbassen/alfred/issues/3).
 
+## Local intent model (optional)
+
+The phrase templates only understand phrasings they list. A small local model catches the rest ("could you throw on some queen", "turn the music off"). It's tried only when the templates miss, and runs on your machine via llama.cpp:
+
+```sh
+cd backend
+make install                 # also builds llama.cpp's llama-server into .deps/
+./download-model.sh --llm    # Ministral 3 3B Instruct, Q4_K_M (~2.1 GB, Apache-2.0)
+make run
+```
+
+Alfred starts `llama-server` as a child process, loads and warms the model in the background, and stops it on exit. Until the model is warm, misses get "Sorry, I didn't catch that." Without the model file the tier is left out.
+
+Settings: `ALFRED_INTENT_MODEL_FILE`, `ALFRED_INTENT_MODEL_THREADS` (default 4), and `ALFRED_INTENT_MODEL_TIMEOUT` (default 3s; slower answers fall through).
+
+On a laptop CPU, Ministral 3 3B answers in ~2–3 s, so it's a fallback, not a fast path. Model choice is tracked in [#26](https://github.com/Sundbassen/alfred/issues/26).
+
 ## Music (Spotify)
 
 The music skill plays Spotify on Alfred's own speaker: "play daft punk", "play a radio with daft punk and justice" (a shuffled mix of only those artists), "pause", "play" (resume), "next song", "go back".
@@ -138,6 +155,8 @@ Alfred downloads or builds these; none are included in the repository.
 | Component | Used for | License |
 |---|---|---|
 | [whisper.cpp](https://github.com/ggerganov/whisper.cpp) and its Whisper models | speech-to-text | MIT |
+| [llama.cpp](https://github.com/ggml-org/llama.cpp) (`llama-server`) | runs the local intent model | MIT |
+| [Ministral 3 3B Instruct](https://huggingface.co/mistralai/Ministral-3-3B-Instruct-2512-GGUF) (Mistral AI) | local intent model (optional) | Apache-2.0 |
 | [ONNX Runtime](https://github.com/microsoft/onnxruntime) | running the wake word and VAD models | MIT |
 | [openWakeWord](https://github.com/dscripka/openWakeWord) | wake word feature models and training pipeline | code: Apache-2.0. Pre-trained models: **CC BY-NC-SA 4.0 (non-commercial)**. Its README doesn't say whether this covers the `melspectrogram.onnx` / `embedding_model.onnx` feature models Alfred downloads, so treat them as non-commercial. |
 | [Silero VAD](https://github.com/snakers4/silero-vad) | optional silence detector | MIT |

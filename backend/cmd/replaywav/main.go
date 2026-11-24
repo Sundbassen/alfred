@@ -50,13 +50,24 @@ func main() {
 	data = append(data, make([]byte, *tailMs*app.SampleRate/1000*2)...)
 
 	router := assistant.NewRouter()
-	if err := wiring.RegisterSkills(router, wiring.ConfigFromEnv(), logger); err != nil {
+	cfg := wiring.ConfigFromEnv()
+	if err := wiring.RegisterSkills(router, cfg, logger); err != nil {
 		logger.Error("Failed to set up skills", slog.Any("error", err))
 		os.Exit(1)
 	}
-	templates := match.New(router.Intents())
-	asst := app.NewAssistant(router, templates)
-	service, cleanup, err := app.New(app.Options{VAD: *vad, Prompt: templates.Prompt(), SaveDir: *save, Verbose: *verbose}, logger)
+	asst, err := wiring.NewAssistant(router, cfg, logger)
+	if err != nil {
+		logger.Error("Failed to set up recognition", slog.Any("error", err))
+		os.Exit(1)
+	}
+	defer asst.Close()
+	// Replays should exercise the model tier, so wait for it to load.
+	waitCtx, cancelWait := context.WithTimeout(context.Background(), 2*time.Minute)
+	if err := asst.WaitReady(waitCtx); err != nil {
+		logger.Warn("Intent model not ready, replaying without it", slog.Any("error", err))
+	}
+	cancelWait()
+	service, cleanup, err := app.New(app.Options{VAD: *vad, Prompt: asst.Prompt, SaveDir: *save, Verbose: *verbose}, logger)
 	if err != nil {
 		logger.Error("Failed to create speech pipeline", slog.Any("error", err))
 		os.Exit(1)

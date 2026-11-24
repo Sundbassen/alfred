@@ -75,3 +75,31 @@ else
         exit 1
     fi
 fi
+
+# Local intent model (opt-in, ~2.1 GB): ./download-model.sh --llm
+# Ministral 3 3B Instruct by Mistral AI (Apache-2.0), Q4_K_M GGUF for
+# llama.cpp, pinned to a repo revision and checked by sha256.
+if [ "$1" = "--llm" ]; then
+    LLM_DIR="${MODEL_DIR}/llm"
+    LLM_NAME="Ministral-3-3B-Instruct-2512-Q4_K_M.gguf"
+    LLM_REV="eb599d408350ea2bb60452cb86be7c7b2fc28227"
+    LLM_SHA256="9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8"
+    LLM_URL="https://huggingface.co/mistralai/Ministral-3-3B-Instruct-2512-GGUF/resolve/${LLM_REV}/${LLM_NAME}"
+    LLM_FILE="${LLM_DIR}/${LLM_NAME}"
+
+    mkdir -p "${LLM_DIR}"
+    if [ -f "${LLM_FILE}" ]; then
+        echo "Model already exists: ${LLM_FILE}"
+    else
+        echo "Downloading intent model ${LLM_NAME} (~2.1 GB)"
+        if curl -fL -o "${LLM_FILE}.part" "${LLM_URL}" &&
+            echo "${LLM_SHA256}  ${LLM_FILE}.part" | sha256sum -c - &&
+            mv "${LLM_FILE}.part" "${LLM_FILE}"; then
+            echo "Model downloaded successfully!"
+            ls -lh "${LLM_FILE}"
+        else
+            echo "Failed to download or verify the intent model (partial file: ${LLM_FILE}.part)"
+            exit 1
+        fi
+    fi
+fi

@@ -120,9 +120,13 @@ func (r *Recognizer) Recognize(ctx context.Context, transcript string) (assistan
 	data, err := r.model.Generate(ctx, Request{System: r.system, User: transcript, Schema: r.schema})
 	took := time.Since(start)
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		r.log().Warn("Intent model timed out", slog.String("model", r.cfg.Name),
+			slog.String("transcript", transcript), slog.Duration("timeout", r.timeout))
 		return assistant.Recognition{}, errors.WithMessagef(fault.ErrTimeout, "%s took over %s", r.cfg.Name, r.timeout)
 	}
 	if err != nil {
+		r.log().Warn("Intent model failed", slog.String("model", r.cfg.Name),
+			slog.String("transcript", transcript), slog.Duration("took", took), slog.String("error", err.Error()))
 		return assistant.Recognition{}, errors.WithMessage(err, r.cfg.Name)
 	}
 
@@ -130,12 +134,24 @@ func (r *Recognizer) Recognize(ctx context.Context, transcript string) (assistan
 	if err != nil {
 		r.log().Info("Intent model answer rejected", slog.String("model", r.cfg.Name),
 			slog.String("transcript", transcript), slog.String("answer", string(data)),
-			slog.Duration("took", took), slog.Any("reason", err))
+			slog.Duration("took", took), slog.String("reason", err.Error()))
 		return assistant.Recognition{}, err
 	}
 	r.log().Info("Intent model answered", slog.String("model", r.cfg.Name),
 		slog.String("intent", rec.Intent), slog.Any("slots", rec.Slots), slog.Duration("took", took))
 	return rec, nil
+}
+
+// Warm sends one throwaway request so the model server processes and
+// caches the (static) system prompt before the first real command; that
+// first pass is the slow part (several seconds on a CPU).
+func (r *Recognizer) Warm(ctx context.Context) error {
+	start := time.Now()
+	if _, err := r.model.Generate(ctx, Request{System: r.system, User: "hello", Schema: r.schema}); err != nil {
+		return errors.WithMessage(err, "warm up "+r.cfg.Name)
+	}
+	r.log().Info("Intent model warmed up", slog.String("model", r.cfg.Name), slog.Duration("took", time.Since(start)))
+	return nil
 }
 
 // validate turns the model's answer into a Recognition, rejecting anything
@@ -203,6 +219,8 @@ func systemPrompt(routes []assistant.Route) string {
 	b.WriteString("The user message is a spoken command transcribed by speech recognition; it may contain recognition errors. ")
 	b.WriteString("Pick the one intent below that the command clearly asks for and fill in its slots with words from the command. ")
 	b.WriteString(`If the command does not clearly ask for one of these intents, answer intent "none". `)
+	// Asking for compact JSON saves output tokens but made Ministral 3 3B
+	// miss intents ("turn the music off" -> none); keep the plain request.
 	b.WriteString("Never invent slot values: copy them from the command. Answer with JSON only.\n\nIntents:\n")
 	for _, rt := range routes {
 		fmt.Fprintf(&b, "- %s: %s.", rt.Name, strings.TrimSuffix(rt.Spec.Description, "."))

@@ -66,16 +66,23 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
-	if err := wiring.RegisterSkills(context.Background(), router, cfg, out, db, logger); err != nil {
+	// The local model (nil if not installed) serves the intent tier and
+	// the answer skill; it loads in the background.
+	model, err := wiring.StartModel(cfg, logger)
+	if err != nil {
+		logger.Error("Failed to start the local model", slog.Any("error", err))
+		os.Exit(1)
+	}
+	defer model.Close()
+	if err := wiring.RegisterSkills(context.Background(), router, cfg, wiring.Deps{Output: out, DB: db, Model: model}, logger); err != nil {
 		logger.Error("Failed to set up skills", slog.Any("error", err))
 		os.Exit(1)
 	}
-	asst, err := wiring.NewAssistant(router, cfg, logger)
+	asst, err := wiring.NewAssistant(router, cfg, model, logger)
 	if err != nil {
 		logger.Error("Failed to set up recognition", slog.Any("error", err))
 		os.Exit(1)
 	}
-	defer asst.Close()
 	sttService, cleanup, err := app.New(
 		app.Options{
 			VAD:               *vad,

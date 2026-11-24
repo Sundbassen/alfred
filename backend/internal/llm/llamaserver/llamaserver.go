@@ -29,7 +29,12 @@ type Config struct {
 	Binary      string // path to llama-server
 	ModelFile   string // GGUF model
 	Threads     int    // CPU threads (default 4)
-	ContextSize int    // tokens (default 4096)
+	ContextSize int    // tokens, shared by the slots (default 4096)
+	// Parallel is the number of slots (default 1). Each keeps its own
+	// prompt cache, so requests with different system prompts (intents,
+	// answers) don't evict each other's; llama-server routes a request to
+	// the slot with the most similar prompt.
+	Parallel int
 	// StartupTimeout bounds model loading (default 2 minutes).
 	StartupTimeout time.Duration
 	Logger         *slog.Logger
@@ -59,6 +64,9 @@ func Start(cfg Config) (*Server, error) {
 	if cfg.ContextSize == 0 {
 		cfg.ContextSize = 4096
 	}
+	if cfg.Parallel == 0 {
+		cfg.Parallel = 1
+	}
 	if cfg.StartupTimeout == 0 {
 		cfg.StartupTimeout = 2 * time.Minute
 	}
@@ -76,7 +84,7 @@ func Start(cfg Config) (*Server, error) {
 		"--host", "127.0.0.1", "--port", strconv.Itoa(port),
 		"--ctx-size", strconv.Itoa(cfg.ContextSize),
 		"--threads", strconv.Itoa(cfg.Threads),
-		"--parallel", "1", // one request at a time; keeps the whole cache for the shared prompt
+		"--parallel", strconv.Itoa(cfg.Parallel), // slots, each with its own prompt cache
 		"--jinja", // use the model's own chat template
 		"--no-ui",
 	)
@@ -207,6 +215,23 @@ type Message struct {
 type Options struct {
 	Temperature float64
 	MaxTokens   int
+	// LogProbs returns each generated token's log-probability.
+	LogProbs bool
+}
+
+// Completion is a chat completion's answer.
+type Completion struct {
+	Content []byte
+	// Tokens are the generated tokens, with Options.LogProbs. Their text
+	// can include formatting llama-server strips from Content (a ```json
+	// fence around the JSON).
+	Tokens []Token
+}
+
+// Token is one generated token and its log-probability.
+type Token struct {
+	Text    string
+	Logprob float64
 }
 
 type chatRequest struct {
@@ -215,6 +240,7 @@ type chatRequest struct {
 	Temperature    float64        `json:"temperature"`
 	MaxTokens      int            `json:"max_tokens,omitempty"`
 	CachePrompt    bool           `json:"cache_prompt"`
+	LogProbs       bool           `json:"logprobs,omitempty"`
 	Stream         bool           `json:"stream"`
 }
 
@@ -233,9 +259,9 @@ type jsonSchema struct {
 // JSON-marshalable JSON Schema; llama-server compiles it to a grammar, so
 // the output can only match it) and returns the answer's content. The
 // shared prompt prefix is cached across requests.
-func (c *Client) ChatJSON(ctx context.Context, messages []Message, schema any, opts Options) ([]byte, error) {
+func (c *Client) ChatJSON(ctx context.Context, messages []Message, schema any, opts Options) (Completion, error) {
 	if !c.Ready() {
-		return nil, errors.WithMessage(fault.ErrServiceUnavailable, "llama-server is still loading the model")
+		return Completion{}, errors.WithMessage(fault.ErrServiceUnavailable, "llama-server is still loading the model")
 	}
 	body, err := json.Marshal(chatRequest{
 		Messages: messages,
@@ -246,29 +272,30 @@ func (c *Client) ChatJSON(ctx context.Context, messages []Message, schema any, o
 		Temperature: opts.Temperature,
 		MaxTokens:   opts.MaxTokens,
 		CachePrompt: true,
+		LogProbs:    opts.LogProbs,
 	})
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return Completion{}, errors.WithStack(err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/v1/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return Completion{}, errors.WithStack(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.http.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, errors.WithStack(ctx.Err())
+			return Completion{}, errors.WithStack(ctx.Err())
 		}
-		return nil, errors.Prefix(errors.WithMessage(err, "llama-server"), fault.ErrServiceUnavailable)
+		return Completion{}, errors.Prefix(errors.WithMessage(err, "llama-server"), fault.ErrServiceUnavailable)
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, errors.Prefix(errors.WithMessage(err, "read llama-server response"), fault.ErrServiceUnavailable)
+		return Completion{}, errors.Prefix(errors.WithMessage(err, "read llama-server response"), fault.ErrServiceUnavailable)
 	}
 	if category := fault.ErrorFromHTTPCode(resp.StatusCode); category != nil {
-		return nil, errors.WithMessagef(category, "llama-server: %d %s", resp.StatusCode, bytes.TrimSpace(data))
+		return Completion{}, errors.WithMessagef(category, "llama-server: %d %s", resp.StatusCode, bytes.TrimSpace(data))
 	}
 
 	var out struct {
@@ -276,10 +303,23 @@ func (c *Client) ChatJSON(ctx context.Context, messages []Message, schema any, o
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
+			LogProbs *struct {
+				Content []struct {
+					Token   string  `json:"token"`
+					Logprob float64 `json:"logprob"`
+				} `json:"content"`
+			} `json:"logprobs"`
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(data, &out); err != nil || len(out.Choices) == 0 {
-		return nil, errors.WithMessagef(fault.ErrDecoding, "llama-server response %s", bytes.TrimSpace(data))
+		return Completion{}, errors.WithMessagef(fault.ErrDecoding, "llama-server response %s", bytes.TrimSpace(data))
 	}
-	return []byte(out.Choices[0].Message.Content), nil
+	choice := out.Choices[0]
+	completion := Completion{Content: []byte(choice.Message.Content)}
+	if choice.LogProbs != nil {
+		for _, t := range choice.LogProbs.Content {
+			completion.Tokens = append(completion.Tokens, Token{Text: t.Token, Logprob: t.Logprob})
+		}
+	}
+	return completion, nil
 }

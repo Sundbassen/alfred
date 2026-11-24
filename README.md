@@ -111,6 +111,12 @@ Settings: `ALFRED_INTENT_MODEL_FILE`, `ALFRED_INTENT_MODEL_THREADS` (default 4),
 
 On a laptop CPU, Ministral 3 3B answers in ~2–3 s, so it's a fallback, not a fast path. Model choice is tracked in [#26](https://github.com/Sundbassen/alfred/issues/26).
 
+### Questions, sums and conversions
+
+The same model answers what no command covers: "what's 15 times 23", "how many grams in a pound", "what's 30 degrees Celsius in Fahrenheit", "who wrote Hamlet". The model only works out what's asked; Alfred computes sums and conversions itself, so the numbers are exact. Free-text answers are only said when the model was confident of them, measured from its token probabilities; otherwise "I'm not sure about that." Obscure questions it would make answers up for get that. A question takes several seconds on a CPU. A cloud model for what the local one can't answer is planned ([#2](https://github.com/Sundbassen/alfred/issues/2)).
+
+`ALFRED_TEST_MODEL=1 make test` runs the answers against the real model, logging each answer's confidence.
+
 ## Everyday commands
 
 - "what time is it", "what's the date", "what day is it"

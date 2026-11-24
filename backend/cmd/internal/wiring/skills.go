@@ -21,6 +21,7 @@ import (
 	"github.com/sundbassen/alfred/internal/llm/ministral"
 	"github.com/sundbassen/alfred/internal/platform/fault"
 	"github.com/sundbassen/alfred/internal/store"
+	"github.com/sundbassen/alfred/skills/answer"
 	"github.com/sundbassen/alfred/skills/clock"
 	"github.com/sundbassen/alfred/skills/clock/clockstore"
 	"github.com/sundbassen/alfred/skills/conversation"
@@ -96,13 +97,24 @@ func ConfigFromEnv() Config {
 	}
 }
 
+// Deps are what the skills are built with, besides their configuration.
+type Deps struct {
+	// Output speaks for skills that speak on their own (timers).
+	Output *app.Output
+	// DB is the local database (store.Open), for state kept across
+	// restarts.
+	DB *sql.DB
+	// Model is the local language model, for the answer skill; nil without
+	// one.
+	Model *Model
+}
+
 // RegisterSkills constructs the skill providers and registers every skill
-// on r. Skills that speak on their own (timers) do so through out; skills
-// that keep state across restarts keep it in db (store.Open). A skill whose
-// provider is not configured, or not logged in, is left out with a log
-// line, so Alfred still runs without it. Other provider failures, and a
-// failure to restore saved state, are returned.
-func RegisterSkills(ctx context.Context, r *assistant.Router, cfg Config, out *app.Output, db *sql.DB, logger *slog.Logger) error {
+// on r. A skill whose provider is not configured, or not logged in, is
+// left out with a log line, so Alfred still runs without it. Other
+// provider failures, and a failure to restore saved state, are returned.
+func RegisterSkills(ctx context.Context, r *assistant.Router, cfg Config, deps Deps, logger *slog.Logger) error {
+	out, db := deps.Output, deps.DB
 	// Remembers the last reply, for "repeat that".
 	history := conversation.NewHistory()
 	r.Use(history.Middleware)
@@ -118,6 +130,14 @@ func RegisterSkills(ctx context.Context, r *assistant.Router, cfg Config, out *a
 
 	// Lists live in the local database until the cloud backend (#39).
 	lists.Register(r, listsstore.New(db))
+
+	// Questions no other skill covers, answered by the local model.
+	if deps.Model == nil {
+		logger.Info("Answer skill disabled: no local model")
+	} else {
+		answerer := answer.Register(r, deps.Model, logger)
+		deps.Model.OnReady(answerer.Warm)
+	}
 
 	if cfg.Weather == nil {
 		logger.Info("Weather skill disabled: ALFRED_WEATHER_LATITUDE and ALFRED_WEATHER_LONGITUDE are unset or not valid coordinates")

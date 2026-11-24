@@ -134,3 +134,29 @@ func TestRouteSlots(t *testing.T) {
 		}
 	}
 }
+
+type question struct{ Text string }
+
+func (question) IntentName() string { return "question" }
+
+func TestFallback(t *testing.T) {
+	r := newTestRouter(nil)
+	var asked []string
+	assistant.Handle(r, assistant.Spec{}, func(_ context.Context, q question) (assistant.Response, error) {
+		asked = append(asked, q.Text)
+		return assistant.Response{Text: "I don't know."}, nil
+	})
+	a := withTemplates(r)
+	a.SetFallback(func(transcript string) assistant.Intent { return question{Text: transcript} })
+
+	reply, err := a.Respond(context.Background(), "Who wrote Hamlet?")
+	if err != nil || reply.Text != "I don't know." || reply.Recognition.By != FallbackBy || len(asked) != 1 {
+		t.Errorf("fallback: %+v, %v, asked %q", reply, err, asked)
+	}
+	if reply, err := a.Respond(context.Background(), "Good morning."); err != nil || reply.Recognition.Intent != "greet" {
+		t.Errorf("a command still goes to its intent: %+v, %v", reply, err)
+	}
+	if _, err := a.Respond(context.Background(), "Uh, thanks."); !errors.Is(err, fault.ErrNotFound) || len(asked) != 1 {
+		t.Errorf("short noise: %v, asked %q; want a no-match and no question", err, asked)
+	}
+}

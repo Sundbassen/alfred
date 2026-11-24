@@ -34,8 +34,8 @@ func TestChatJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(out) != `{"intent":"time","slots":{}}` {
-		t.Errorf("content = %s", out)
+	if string(out.Content) != `{"intent":"time","slots":{}}` || out.Tokens != nil {
+		t.Errorf("completion = %+v", out)
 	}
 	if got.ResponseFormat.Type != "json_schema" || !got.ResponseFormat.JSONSchema.Strict || !got.CachePrompt ||
 		got.MaxTokens != 64 || len(got.Messages) != 2 || got.Messages[1].Content != "what's the clock" {
@@ -71,5 +71,21 @@ func TestStartMissingFiles(t *testing.T) {
 	_, err := Start(Config{Binary: filepath.Join(t.TempDir(), "llama-server"), ModelFile: "model.gguf"})
 	if !errors.Is(err, fault.ErrNotFound) {
 		t.Errorf("error = %v, want fault.ErrNotFound", err)
+	}
+}
+
+func TestChatJSONLogProbs(t *testing.T) {
+	var got chatRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&got)
+		fmt.Fprint(w, `{"choices":[{"message":{"content":"{}"},"logprobs":{"content":[{"token":"{","logprob":-0.01},{"token":"}","logprob":-0.5}]}}]}`)
+	}))
+	defer srv.Close()
+	out, err := NewClient(srv.URL).ChatJSON(context.Background(), nil, nil, Options{LogProbs: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.LogProbs || len(out.Tokens) != 2 || out.Tokens[1] != (Token{Text: "}", Logprob: -0.5}) {
+		t.Errorf("request logprobs %v, tokens %+v", got.LogProbs, out.Tokens)
 	}
 }

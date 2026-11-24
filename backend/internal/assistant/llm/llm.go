@@ -8,6 +8,7 @@
 package llm
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -27,28 +28,108 @@ import (
 // Implementations return fault categories: fault.ErrServiceUnavailable
 // when the model can't answer right now (not loaded, not running).
 type Model interface {
-	Generate(ctx context.Context, req Request) ([]byte, error)
+	Generate(ctx context.Context, req Request) (Result, error)
 }
 
 // Request is one prompt for the model.
 type Request struct {
-	// System describes the intents. It is identical for every request
-	// within a run, so a model server can cache its prefix.
+	// System is the instructions, e.g. the intents. It is identical for
+	// every request of one kind within a run, so a model server can cache
+	// its prefix.
 	System string
 	// User is the transcript.
 	User string
 	// Schema constrains the answer.
 	Schema *Schema
+	// MaxTokens bounds the answer (0: the model's default for short JSON).
+	MaxTokens int
+	// Confidence asks for each generated token's log-probability
+	// (Result.Tokens), see TextConfidence.
+	Confidence bool
 }
 
-// Schema is the subset of JSON Schema the recognizer needs.
+// Result is the model's answer.
+type Result struct {
+	JSON []byte
+	// Tokens are the generated tokens with their log-probabilities, if the
+	// request asked for Confidence. Their text may include formatting the
+	// model server strips from JSON (e.g. a ```json fence).
+	Tokens []Token
+}
+
+// Token is one generated token.
+type Token struct {
+	Text    string
+	Logprob float64
+}
+
+// Schema is the subset of JSON Schema the model clients need.
 type Schema struct {
-	Type                 string             `json:"type"`
+	// AnyOf makes the answer one of several shapes (e.g. one per kind), so
+	// fields of one kind can't appear in another.
+	AnyOf                []*Schema          `json:"anyOf,omitempty"`
+	Type                 string             `json:"type,omitempty"`
 	Description          string             `json:"description,omitempty"`
 	Enum                 []string           `json:"enum,omitempty"`
 	Properties           map[string]*Schema `json:"properties,omitempty"`
 	Required             []string           `json:"required,omitempty"`
 	AdditionalProperties *bool              `json:"additionalProperties,omitempty"`
+	// Order is the order of Properties in the JSON (default: sorted). A
+	// model writes the fields in this order, so put the deciding one (e.g.
+	// a "kind") first: written after the others, it would come too late to
+	// steer them.
+	Order []string `json:"-"`
+}
+
+// MarshalJSON writes the schema with its properties in Order.
+func (s *Schema) MarshalJSON() ([]byte, error) {
+	type plain Schema // without this method
+	if len(s.Properties) == 0 {
+		return json.Marshal((*plain)(s))
+	}
+	rest := *s
+	rest.Properties = nil
+	head, err := json.Marshal((*plain)(&rest))
+	if err != nil {
+		return nil, err
+	}
+	keys := slices.Clone(s.Order)
+	var others []string
+	for k := range s.Properties {
+		if !slices.Contains(keys, k) {
+			others = append(others, k)
+		}
+	}
+	slices.Sort(others)
+	keys = append(keys, others...)
+
+	var b bytes.Buffer
+	b.WriteString(`{"properties":{`)
+	for i, k := range keys {
+		prop, ok := s.Properties[k]
+		if !ok {
+			continue
+		}
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		name, _ := json.Marshal(k)
+		value, err := json.Marshal(prop)
+		if err != nil {
+			return nil, err
+		}
+		b.Write(name)
+		b.WriteByte(':')
+		b.Write(value)
+	}
+	b.WriteByte('}')
+	if len(head) > 2 { // more than "{}"
+		b.WriteByte(',')
+		b.Write(head[1:])
+	} else {
+		b.WriteByte('}')
+	}
+	return b.Bytes(), nil
 }
 
 // noIntent is the answer for a transcript that matches no intent.
@@ -117,7 +198,8 @@ func (r *Recognizer) Recognize(ctx context.Context, transcript string) (assistan
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 	start := time.Now()
-	data, err := r.model.Generate(ctx, Request{System: r.system, User: transcript, Schema: r.schema})
+	res, err := r.model.Generate(ctx, Request{System: r.system, User: transcript, Schema: r.schema})
+	data := res.JSON
 	took := time.Since(start)
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		r.log().Warn("Intent model timed out", slog.String("model", r.cfg.Name),

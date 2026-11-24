@@ -32,16 +32,16 @@ type fakeModel struct {
 	reqs   []Request
 }
 
-func (f *fakeModel) Generate(ctx context.Context, req Request) ([]byte, error) {
+func (f *fakeModel) Generate(ctx context.Context, req Request) (Result, error) {
 	f.reqs = append(f.reqs, req)
 	if f.delay > 0 {
 		select {
 		case <-time.After(f.delay):
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return Result{}, ctx.Err()
 		}
 	}
-	return []byte(f.answer), f.err
+	return Result{JSON: []byte(f.answer)}, f.err
 }
 
 func newRecognizer(m Model) *Recognizer {

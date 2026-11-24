@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"slices"
 
 	"gitlab.com/tozd/go/errors"
 
@@ -69,10 +70,11 @@ func slotFields(t reflect.Type) (map[string]int, error) {
 	return fields, nil
 }
 
-// checkSlots panics if a phrase uses a slot the intent type has no field
-// for, or the type has slot fields that are not strings: programming errors
-// found at registration, like a duplicate intent name.
-func checkSlots(intent Intent, spec Spec) {
+// checkSlots returns the intent type's slot names (sorted). It panics if a
+// phrase uses a slot the type has no field for, or the type has slot fields
+// that are not strings: programming errors found at registration, like a
+// duplicate intent name.
+func checkSlots(intent Intent, spec Spec) []string {
 	fields, err := slotFields(reflect.TypeOf(intent))
 	if err != nil {
 		panic(fmt.Sprintf("assistant: intent %q: %v", intent.IntentName(), err))
@@ -85,4 +87,10 @@ func checkSlots(intent Intent, spec Spec) {
 			}
 		}
 	}
+	names := make([]string, 0, len(fields))
+	for name := range fields {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
 }

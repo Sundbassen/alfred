@@ -10,8 +10,9 @@ import (
 
 // Route is a registered intent as recognizers see it.
 type Route struct {
-	Name string
-	Spec Spec
+	Name  string
+	Spec  Spec
+	Slots []string // slot names of the intent type (fields tagged `slot`), sorted
 }
 
 type route struct {
@@ -47,10 +48,10 @@ func Handle[I Intent](r *Router, spec Spec, h func(ctx context.Context, intent I
 	if _, dup := r.routes[name]; dup {
 		panic(fmt.Sprintf("assistant: intent %q registered twice", name))
 	}
-	checkSlots(zero, spec)
+	slots := checkSlots(zero, spec)
 
 	r.routes[name] = &route{
-		Route:     Route{Name: name, Spec: spec},
+		Route:     Route{Name: name, Spec: spec, Slots: slots},
 		newIntent: func() Intent { var v I; return v },
 		handler: HandlerFunc(func(ctx context.Context, intent Intent) (Response, error) {
 			v, ok := intent.(I)

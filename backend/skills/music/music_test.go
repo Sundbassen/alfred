@@ -9,6 +9,7 @@ import (
 
 	"github.com/sundbassen/alfred/internal/app"
 	"github.com/sundbassen/alfred/internal/assistant"
+	"github.com/sundbassen/alfred/internal/assistant/match"
 	"github.com/sundbassen/alfred/internal/platform/fault"
 )
 
@@ -45,7 +46,7 @@ func respond(t *testing.T, p *fakePlayer, transcript string) (*app.Reply, error)
 	t.Helper()
 	r := assistant.NewRouter()
 	Register(r, p)
-	return app.NewAssistant(r).Respond(context.Background(), transcript)
+	return app.NewAssistant(r, match.New(r.Intents())).Respond(context.Background(), transcript)
 }
 
 func TestTranscriptsReachThePlayer(t *testing.T) {

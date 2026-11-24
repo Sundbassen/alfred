@@ -54,8 +54,9 @@ func main() {
 		logger.Error("Failed to set up skills", slog.Any("error", err))
 		os.Exit(1)
 	}
-	asst := app.NewAssistant(router)
-	service, cleanup, err := app.New(app.Options{VAD: *vad, Prompt: asst.Prompt(), SaveDir: *save, Verbose: *verbose}, logger)
+	templates := match.New(router.Intents())
+	asst := app.NewAssistant(router, templates)
+	service, cleanup, err := app.New(app.Options{VAD: *vad, Prompt: templates.Prompt(), SaveDir: *save, Verbose: *verbose}, logger)
 	if err != nil {
 		logger.Error("Failed to create speech pipeline", slog.Any("error", err))
 		os.Exit(1)
@@ -80,14 +81,14 @@ func main() {
 			reply, err := asst.Respond(ctx, transcript.Text)
 			var noMatch *match.NoMatchError
 			switch {
-			case errors.As(err, &noMatch) && noMatch.Best.Name != "":
-				fmt.Printf("NO MATCH (best: %s %.2f)\n", noMatch.Best.Name, noMatch.Best.Score)
+			case errors.As(err, &noMatch) && noMatch.Best.Intent != "":
+				fmt.Printf("NO MATCH (best: %s %.2f)\n", noMatch.Best.Intent, noMatch.Best.Score)
 			case errors.As(err, &noMatch):
 				fmt.Println("NO MATCH")
 			case err != nil:
 				fmt.Printf("COMMAND FAILED: %v (says %q)\n", err, assistant.SpokenText(err))
 			default:
-				fmt.Printf("RESPONSE: [%s %.2f] %q\n", reply.Match.Name, reply.Match.Score, reply.Text)
+				fmt.Printf("RESPONSE: [%s %.2f by %s] %q\n", reply.Recognition.Intent, reply.Recognition.Score, reply.Recognition.By, reply.Text)
 			}
 		}
 	}()

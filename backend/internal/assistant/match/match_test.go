@@ -1,6 +1,7 @@
 package match
 
 import (
+	"context"
 	"strconv"
 	"strings"
 	"testing"
@@ -55,14 +56,14 @@ func TestRecognize(t *testing.T) {
 		{"", "", false},
 	}
 	for _, tt := range tests {
-		res, err := m.Recognize(tt.transcript)
+		res, err := m.Recognize(context.Background(), tt.transcript)
 		if tt.wantName == "" {
 			if !errors.Is(err, fault.ErrNotFound) {
 				t.Errorf("Recognize(%q) = %+v, %v; want fault.ErrNotFound", tt.transcript, res, err)
 			}
 			continue
 		}
-		if err != nil || res.Name != tt.wantName {
+		if err != nil || res.Intent != tt.wantName {
 			t.Errorf("Recognize(%q) = %+v, %v; want %s", tt.transcript, res, err, tt.wantName)
 			continue
 		}
@@ -100,9 +101,9 @@ func TestPrompt(t *testing.T) {
 }
 
 func TestNoMatchErrorCarriesBest(t *testing.T) {
-	_, err := newTestMatcher().Recognize("tell me a joke about time")
+	_, err := newTestMatcher().Recognize(context.Background(), "tell me a joke about time")
 	var noMatch *NoMatchError
-	if !errors.As(err, &noMatch) || noMatch.Best.Name != "time" || noMatch.Best.Score == 0 {
+	if !errors.As(err, &noMatch) || noMatch.Best.Intent != "time" || noMatch.Best.Score == 0 {
 		t.Errorf("Recognize = %v; want a *NoMatchError with best candidate time", err)
 	}
 }
@@ -129,8 +130,8 @@ func TestTemplates(t *testing.T) {
 		{"what time is it", "time", nil},
 	}
 	for _, tt := range tests {
-		res, err := m.Recognize(tt.transcript)
-		if err != nil || res.Name != tt.wantName {
+		res, err := m.Recognize(context.Background(), tt.transcript)
+		if err != nil || res.Intent != tt.wantName {
 			t.Errorf("Recognize(%q) = %+v, %v; want %s", tt.transcript, res, err, tt.wantName)
 			continue
 		}
@@ -149,7 +150,7 @@ func TestTemplates(t *testing.T) {
 func TestTemplateNeedsSlotWords(t *testing.T) {
 	m := New(routes(route("play", "play {query}")))
 	for _, transcript := range []string{"play", "stop the music"} {
-		if _, err := m.Recognize(transcript); !errors.Is(err, fault.ErrNotFound) {
+		if _, err := m.Recognize(context.Background(), transcript); !errors.Is(err, fault.ErrNotFound) {
 			t.Errorf("Recognize(%q) error = %v, want no match", transcript, err)
 		}
 	}
@@ -164,8 +165,8 @@ func TestPromptTemplates(t *testing.T) {
 
 func TestExactPhraseBeatsTemplate(t *testing.T) {
 	m := New(routes(route("play", "play {query}"), route("radio", "play the radio")))
-	res, err := m.Recognize("play the radio")
-	if err != nil || res.Name != "radio" || res.Slots != nil {
+	res, err := m.Recognize(context.Background(), "play the radio")
+	if err != nil || res.Intent != "radio" || res.Slots != nil {
 		t.Errorf("Recognize = %+v, %v; want the exact phrase radio", res, err)
 	}
 }

@@ -1,4 +1,8 @@
-package clock
+// Package spoken parses and says times, durations, days and numbers as
+// people speak them, for the skills: input is text normalized by
+// match.Normalize ("7:30 a.m." arrives as "7 30 a m"), output is text for
+// text-to-speech.
+package spoken
 
 import (
 	"strconv"
@@ -11,40 +15,32 @@ import (
 	"github.com/sundbassen/alfred/internal/platform/fault"
 )
 
-// when is when a timer goes off.
-type when struct {
+// When is a point in time someone said: a duration from now or a clock
+// time.
+type When struct {
 	At time.Time
 	// Duration is set for a duration ("in 10 minutes"); 0 for a clock time
 	// ("at 7").
 	Duration time.Duration
 }
 
-// maxDuration bounds timers; clock times are within two days anyway.
-const maxDuration = 24 * time.Hour
-
-// parseWhen parses a spoken time, normalized (match.Normalize turns "7:30
+// ParseWhen parses a spoken time, normalized (match.Normalize turns "7:30
 // a.m." into "7 30 a m"): a duration ("10 minutes", "an hour and a half")
 // or a clock time ("7", "7 30 pm", "half past 7", "tomorrow at noon"). A
 // clock time without am/pm is the next occurrence of either: at 22:00, "7"
 // is 07:00 tomorrow; at 10:00 it is 19:00. Failures are SpokenErrors.
-func parseWhen(text string, now time.Time) (when, error) {
+func ParseWhen(text string, now time.Time) (When, error) {
 	tokens := strings.Fields(text)
 	for len(tokens) > 0 && leadingFiller[tokens[0]] {
 		tokens = tokens[1:]
 	}
 	if d, ok := parseDuration(tokens); ok {
-		if d > maxDuration {
-			return when{}, &assistant.SpokenError{
-				Text: "Sorry, I can only set timers for up to 24 hours.",
-				Err:  errors.WithMessagef(fault.ErrInvalidValue, "duration %s over %s", d, maxDuration),
-			}
-		}
-		return when{At: now.Add(d), Duration: d}, nil
+		return When{At: now.Add(d), Duration: d}, nil
 	}
 	if at, ok := parseClock(tokens, now); ok {
-		return when{At: at}, nil
+		return When{At: at}, nil
 	}
-	return when{}, &assistant.SpokenError{
+	return When{}, &assistant.SpokenError{
 		Text: "Sorry, I didn't get when.",
 		Err:  errors.WithMessagef(fault.ErrInvalidValue, "no time in %q", text),
 	}
@@ -77,7 +73,7 @@ func parseDuration(tokens []string) (time.Duration, bool) {
 		case "a", "an":
 			n, i = 1, i+1
 		default:
-			v, next, ok := number(tokens, i)
+			v, next, ok := Number(tokens, i)
 			if !ok {
 				return 0, false
 			}
@@ -219,13 +215,13 @@ func clockTime(tokens []string) (h, m int, fixed, ok bool) {
 			if n := len(before); n > 0 && (before[n-1] == "minutes" || before[n-1] == "minute") {
 				before = before[:n-1]
 			}
-			v, next, ok := number(before, 0)
+			v, next, ok := Number(before, 0)
 			if !ok || next != len(before) || v < 1 || v > 59 {
 				return 0, 0, false, false
 			}
 			minutes = v
 		}
-		hour, next, ok := number(tokens, k+1)
+		hour, next, ok := Number(tokens, k+1)
 		if !ok || next != len(tokens) || hour > 23 {
 			return 0, 0, false, false
 		}
@@ -250,7 +246,7 @@ func clockTime(tokens []string) (h, m int, fixed, ok bool) {
 	}
 
 	// 7, 7 30, seven oh five
-	h, i, ok := number(tokens, 0)
+	h, i, ok := Number(tokens, 0)
 	if !ok {
 		return 0, 0, false, false
 	}
@@ -258,7 +254,7 @@ func clockTime(tokens []string) (h, m int, fixed, ok bool) {
 		i++
 	}
 	if i < len(tokens) {
-		if m, i, ok = number(tokens, i); !ok {
+		if m, i, ok = Number(tokens, i); !ok {
 			return 0, 0, false, false
 		}
 	}
@@ -273,9 +269,9 @@ var ones = map[string]int{
 
 var tens = map[string]int{"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50}
 
-// number parses a number at tokens[i]: digits ("25") or words ("twenty
+// Number parses a number at tokens[i]: digits ("25") or words ("twenty
 // five"), returning it and the index after it.
-func number(tokens []string, i int) (n, next int, ok bool) {
+func Number(tokens []string, i int) (n, next int, ok bool) {
 	if i >= len(tokens) {
 		return 0, i, false
 	}

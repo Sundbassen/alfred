@@ -12,6 +12,7 @@ import (
 	"github.com/sundbassen/alfred/internal/assistant"
 	"github.com/sundbassen/alfred/internal/assistant/match"
 	"github.com/sundbassen/alfred/internal/platform/fault"
+	"github.com/sundbassen/alfred/internal/spoken"
 )
 
 // CancelTimer cancels a timer, alarm or reminder: "cancel the timer",
@@ -106,7 +107,7 @@ func (sel selection) matches(e entry, now time.Time) bool {
 		return true
 	}
 	text := strings.Join(sel.words, " ")
-	if w, err := parseWhen(text, now); err == nil {
+	if w, err := spoken.ParseWhen(text, now); err == nil {
 		if w.Duration > 0 {
 			return e.Duration == w.Duration
 		}
@@ -114,7 +115,7 @@ func (sel selection) matches(e entry, now time.Time) bool {
 		return e.At.Minute() == w.At.Minute() && e.At.Hour()%12 == w.At.Hour()%12
 	}
 	message := " " + e.Message + " "
-	for _, w := range strings.Fields(secondPerson(text)) {
+	for _, w := range strings.Fields(spoken.SecondPerson(text)) {
 		if !strings.Contains(message, " "+w+" ") {
 			return false
 		}
@@ -131,14 +132,7 @@ func (sel selection) noneText() string {
 	for i, k := range sel.kinds {
 		names[i] = k.String() + "s"
 	}
-	return "You have no " + joinOr(names) + "."
-}
-
-func joinOr(parts []string) string {
-	if len(parts) <= 1 {
-		return strings.Join(parts, "")
-	}
-	return strings.Join(parts[:len(parts)-1], ", ") + " or " + parts[len(parts)-1]
+	return "You have no " + spoken.JoinOr(names) + "."
 }
 
 func (h *handler) cancelTimer(ctx context.Context, i CancelTimer) (assistant.Response, error) {
@@ -167,7 +161,7 @@ func (h *handler) cancelTimer(ctx context.Context, i CancelTimer) (assistant.Res
 			names[i] = e.name(now)
 		}
 		return assistant.Response{}, &assistant.SpokenError{
-			Text: fmt.Sprintf("You have %d: %s. Which one?", len(matched), joinAnd(names)),
+			Text: fmt.Sprintf("You have %d: %s. Which one?", len(matched), spoken.JoinAnd(names)),
 			Err:  errors.WithMessagef(fault.ErrInvalidValue, "%q matches %d timers", i.What, len(matched)),
 		}
 	}
@@ -212,9 +206,9 @@ func listText(entries []entry, now time.Time) string {
 func (e entry) name(now time.Time) string {
 	switch e.Kind {
 	case KindTimer:
-		return "your timer for " + formatDuration(e.Duration)
+		return "your timer for " + spoken.FormatDuration(e.Duration)
 	case KindAlarm:
-		return "your alarm for " + formatClock(e.At, now)
+		return "your alarm for " + spoken.FormatClock(e.At, now)
 	default:
 		return "your reminder to " + e.Message
 	}
@@ -229,23 +223,12 @@ func (e entry) status(now time.Time) string {
 	case e.ringing():
 		return name + " is going off."
 	case e.Kind == KindTimer:
-		return name + " has " + formatRemaining(e.At.Sub(now)) + " left."
+		return name + " has " + spoken.FormatRemaining(e.At.Sub(now)) + " left."
 	case e.Kind == KindAlarm:
-		return "Your alarm is set for " + formatClock(e.At, now) + "."
+		return "Your alarm is set for " + spoken.FormatClock(e.At, now) + "."
 	case e.Duration > 0:
-		return name + " is in " + formatRemaining(e.At.Sub(now)) + "."
+		return name + " is in " + spoken.FormatRemaining(e.At.Sub(now)) + "."
 	default:
-		return name + " is at " + formatClock(e.At, now) + "."
+		return name + " is at " + spoken.FormatClock(e.At, now) + "."
 	}
-}
-
-// formatRemaining says time left, to the minute from 2 minutes up.
-func formatRemaining(d time.Duration) string {
-	if d >= 2*time.Minute {
-		d = d.Round(time.Minute)
-	}
-	if d < time.Second {
-		return "less than a second"
-	}
-	return formatDuration(d)
 }

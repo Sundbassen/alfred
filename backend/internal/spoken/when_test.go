@@ -1,9 +1,12 @@
-package clock
+package spoken
 
 import (
 	"testing"
 	"time"
 )
+
+// at10 is the "now" of the tests: Monday 23 Nov 2026, 10:00.
+var at10 = time.Date(2026, 11, 23, 10, 0, 0, 0, time.Local)
 
 func TestParseDuration(t *testing.T) {
 	tests := map[string]time.Duration{
@@ -23,7 +26,7 @@ func TestParseDuration(t *testing.T) {
 		"2 hrs":                 2 * time.Hour,
 	}
 	for text, want := range tests {
-		w, err := parseWhen(text, at10)
+		w, err := ParseWhen(text, at10)
 		if err != nil || w.Duration != want || !w.At.Equal(at10.Add(want)) {
 			t.Errorf("%q: %+v, %v; want %s", text, w, err, want)
 		}
@@ -66,7 +69,7 @@ func TestParseClock(t *testing.T) {
 		{"10", at10, day(23, 22, 0)}, // 10:00 is now, so the next one
 	}
 	for _, tt := range tests {
-		w, err := parseWhen(tt.text, tt.now)
+		w, err := ParseWhen(tt.text, tt.now)
 		if err != nil || !w.At.Equal(tt.want) || w.Duration != 0 {
 			t.Errorf("%q at %s: %+v, %v; want %s", tt.text, tt.now.Format("15:04"), w, err, tt.want.Format("Jan 2 15:04"))
 		}
@@ -75,7 +78,7 @@ func TestParseClock(t *testing.T) {
 
 func TestParseWhenFailures(t *testing.T) {
 	for _, text := range []string{"", "banana", "0 minutes", "minutes", "25 00", "7 61", "13 am", "the oven", "in the morning"} {
-		if w, err := parseWhen(text, at10); err == nil {
+		if w, err := ParseWhen(text, at10); err == nil {
 			t.Errorf("%q: %+v, want an error", text, w)
 		}
 	}
@@ -88,11 +91,11 @@ func TestFormat(t *testing.T) {
 		time.Hour + time.Minute + time.Second: "1 hour, 1 minute and 1 second",
 		90 * time.Second:                      "1 minute and 30 seconds",
 	} {
-		if got := formatDuration(d); got != want {
-			t.Errorf("formatDuration(%s) = %q, want %q", d, got, want)
+		if got := FormatDuration(d); got != want {
+			t.Errorf("FormatDuration(%s) = %q, want %q", d, got, want)
 		}
 	}
-	if got := secondPerson("tell me i am late for my meeting"); got != "tell you you are late for your meeting" {
-		t.Errorf("secondPerson = %q", got)
+	if got := SecondPerson("tell me i am late for my meeting"); got != "tell you you are late for your meeting" {
+		t.Errorf("SecondPerson = %q", got)
 	}
 }

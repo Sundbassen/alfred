@@ -11,6 +11,7 @@ import (
 
 	"github.com/sundbassen/alfred/internal/app"
 	"github.com/sundbassen/alfred/internal/assistant"
+	"github.com/sundbassen/alfred/internal/assistant/match"
 	"github.com/sundbassen/alfred/internal/voice/tts"
 	"github.com/sundbassen/alfred/skills/music/musicservice"
 )
@@ -44,8 +45,24 @@ func TestMusicNeedsSpotifyConfigAndLogin(t *testing.T) {
 	if err := musicservice.SaveToken(token, &oauth2.Token{AccessToken: "a", RefreshToken: "r"}); err != nil {
 		t.Fatal(err)
 	}
-	if got := intents(t, cfg); !got["music_play"] || !got["music_mix"] || !got["time"] {
-		t.Errorf("logged in: intents %v, want clock and music", got)
+	if got := intents(t, cfg); !got["music_play"] || !got["music_mix"] || !got["time"] || !got["stop"] {
+		t.Errorf("logged in: intents %v, want clock, music and stop", got)
+	}
+
+	// Bare "stop" goes to the stop skill (ringing timers first), not to
+	// music_pause.
+	r := assistant.NewRouter()
+	if err := RegisterSkills(r, cfg, testOutput(), slog.New(slog.DiscardHandler)); err != nil {
+		t.Fatal(err)
+	}
+	if rec, err := match.New(r.Intents()).Recognize(context.Background(), "Stop."); err != nil || rec.Intent != "stop" {
+		t.Errorf("\"Stop.\" = %+v, %v; want the stop intent", rec, err)
+	}
+}
+
+func TestStopWithoutMusic(t *testing.T) {
+	if got := intents(t, Config{}); !got["stop"] || !got["timer_set"] {
+		t.Errorf("intents %v, want stop and timer_set without music", got)
 	}
 }
 

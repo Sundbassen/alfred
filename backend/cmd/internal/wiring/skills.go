@@ -5,6 +5,7 @@
 package wiring
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 	"github.com/sundbassen/alfred/skills/clock"
 	"github.com/sundbassen/alfred/skills/music"
 	"github.com/sundbassen/alfred/skills/music/musicservice"
+	"github.com/sundbassen/alfred/skills/stop"
 )
 
 // Config holds the skill providers' and recognizers' settings.
@@ -70,32 +72,45 @@ func ConfigFromEnv() Config {
 // log line, so Alfred still runs without it. Other provider failures are
 // returned.
 func RegisterSkills(r *assistant.Router, cfg Config, out *app.Output, logger *slog.Logger) error {
-	clock.Register(r, clock.NewTimers(out, logger))
+	timers := clock.NewTimers(out, logger)
+	clock.Register(r, timers)
 
-	if err := registerMusic(r, cfg.Spotify, logger); err != nil {
+	player, err := registerMusic(r, cfg.Spotify, logger)
+	if err != nil {
 		return err
 	}
+
+	// "stop" stops the most urgent thing first: a ringing timer, then the
+	// music.
+	stoppers := []stop.Stopper{timers}
+	if player != nil {
+		stoppers = append(stoppers, stop.StopperFunc(func(ctx context.Context) (bool, error) {
+			return true, player.Pause(ctx, music.Target{})
+		}))
+	}
+	stop.Register(r, stoppers...)
 	return nil
 }
 
 // registerMusic registers the music skill with Spotify as its provider,
-// unless Spotify is not configured or not logged in.
-func registerMusic(r *assistant.Router, cfg musicservice.SpotifyConfig, logger *slog.Logger) error {
+// unless Spotify is not configured or not logged in (then the player is
+// nil).
+func registerMusic(r *assistant.Router, cfg musicservice.SpotifyConfig, logger *slog.Logger) (music.Player, error) {
 	if cfg.ClientID == "" {
 		logger.Info("Music skill disabled: ALFRED_SPOTIFY_CLIENT_ID is not set")
-		return nil
+		return nil, nil
 	}
 	player, err := musicservice.NewSpotify(cfg)
 	if errors.Is(err, fault.ErrUnauthorized) {
 		logger.Warn("Music skill disabled: not logged in to Spotify (run make spotify-login)", slog.Any("error", err))
-		return nil
+		return nil, nil
 	}
 	if err != nil {
-		return errors.WithMessage(err, "set up Spotify")
+		return nil, errors.WithMessage(err, "set up Spotify")
 	}
 	music.Register(r, player)
 	logger.Info("Music skill enabled", slog.String("provider", "spotify"), slog.String("device", cfg.Device))
-	return nil
+	return player, nil
 }
 
 func envOr(key, def string) string {

@@ -135,6 +135,21 @@ func (t *Timers) ring(ctx context.Context, e *entry) {
 	}
 }
 
+// Stop stops every ringing timer, alarm and reminder, reporting whether one
+// was ringing (a stop.Stopper).
+func (t *Timers) Stop(context.Context) (bool, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	stopped := false
+	for _, e := range t.entries {
+		if e.stopRing != nil {
+			e.stopRing()
+			stopped = true
+		}
+	}
+	return stopped, nil
+}
+
 // Close cancels every pending timer and stops every ringing one.
 func (t *Timers) Close() {
 	t.mu.Lock()

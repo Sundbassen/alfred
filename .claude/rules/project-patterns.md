@@ -54,6 +54,10 @@ Recognition, the router and the skills don't change.
 1. Add a client package in `internal/<client>/`.
 2. Adapt it per skill in each skill's `<skill>service` package.
 
+**Coordinate skills** (e.g. `skills/stop`: "stop" stops a ringing timer before the music):
+1. The coordinating skill defines the interface it needs (`stop.Stopper`, plus a func adapter).
+2. Wiring passes the other skills' objects (`*clock.Timers`) or adapters over their providers, in priority order. Skills never import each other.
+
 ## Configuration
 
 - **Providers are configured through the environment:** `ALFRED_<PROVIDER>_<SETTING>`, read in one place, `wiring.ConfigFromEnv()` in `cmd/internal/wiring`, into a `Config` struct of provider configs (e.g. `musicservice.SpotifyConfig`).

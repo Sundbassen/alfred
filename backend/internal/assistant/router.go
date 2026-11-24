@@ -12,7 +12,7 @@ import (
 type Route struct {
 	Name  string
 	Spec  Spec
-	Slots []string // slot names of the intent type (fields tagged `slot`), sorted
+	Slots []Slot // the intent type's slots (fields tagged `slot`), sorted by name
 }
 
 type route struct {

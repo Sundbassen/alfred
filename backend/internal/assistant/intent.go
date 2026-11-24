@@ -15,7 +15,8 @@ import "context"
 //
 // Intent types should be non-pointer structs with a value receiver, so
 // their zero value can name itself. Parameters ("slots") are string fields
-// of the type tagged `slot:"name"`, filled from the phrase's {name}.
+// of the type tagged `slot:"name"` (or `slot:"name,optional"` when phrases
+// may leave it out), filled from the phrase's {name}.
 type Intent interface {
 	IntentName() string
 }

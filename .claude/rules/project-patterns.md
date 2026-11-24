@@ -21,12 +21,14 @@ internal/  may import only internal/       (plus the standard library and third-
 | `cmd/internal/wiring/` | The composition root. `skills.go` constructs the providers (external implementations) and calls every skill's `Register`. It's the one place to see which providers Alfred uses |
 | `skills/<skill>/` | One skill: its intent types, its handlers, the interfaces its handlers need, and `Register(r *assistant.Router, deps...)` registering all of its intents. There is no `skills` package, only one package per skill |
 | `skills/<skill>/<skill>service/` | Providers implementing that skill's interfaces, one file per provider (e.g. `musicservice/spotify.go` with `NewSpotify(...) *Spotify`). Constructors return concrete types. The skill never imports this package; this package may import the skill (for shared types) and `internal/` |
+| `skills/<skill>/<skill>store/` | Persistence for that skill: `queries.sql`, the sqlc-generated `<skill>db` package, and `<skill>store.go`, which implements the skill's `Store` interface: it only runs the queries and converts rows to and from the skill's domain types. Kept separate from `<skill>service` (external providers) |
 | `internal/assistant/` | The intent contract and router: `Intent`, `Handle[I]`, `Router`, `Response`, `Spec`, `SpokenError`, `SpokenText` |
 | `internal/assistant/match/` | The phrase-template recognizer (the first tier) |
 | `internal/assistant/llm/` | The model-agnostic language-model recognizer: prompt and JSON schema from the intents, validation of the answer. Models plug in through its `Model` interface. Further recognizers (e.g. the Claude fallback) go alongside and produce the same `assistant.Recognition` |
 | `internal/llm/<model>/` | Language model implementations of `llm.Model` (e.g. `ministral`), plus `internal/llm/llamaserver` (runs llama.cpp's server as a child process) |
 | `internal/app/` | Wires the voice framework into a listener, plus `Assistant` (recognize → dispatch). It never imports skills |
 | `internal/voice/` | The voice framework: `listener`, `wakeword`, `stt`, `vad` (+ `silero`), `mic`, `tts`, `sound` (the chime), `recorder`. Its contracts are in `voice.go` |
+| `internal/store/` | Alfred's local SQLite database (`modernc.org/sqlite`): `Open` (pragmas in the connection string, mode 0600) and the one shared schema, `migrations/NNNN_name.sql` (numbered, up-only, every table `STRICT`). Cloud-owned user data does not go here (#39) |
 | `internal/platform/` | Shared helpers: `fault` (error categories, see `go-errors.md`), `pcm`, `wav`, `onnxrt`, `logging`, `wakeclip` |
 | `internal/<client>/` | Infrastructure shared by several skills (e.g. `internal/homeassistant`, an API client used by lights and climate). Each skill's service package adapts it to that skill's interface |
 
@@ -49,6 +51,12 @@ internal/  may import only internal/       (plus the standard library and third-
 2. Construct it in `cmd/internal/wiring/assistant.go` instead of, or as a tier after, the current one.
 
 Recognition, the router and the skills don't change.
+
+**Add a table:**
+1. Add the next migration, `internal/store/migrations/NNNN_name.sql`, ending the `CREATE TABLE` with `STRICT`. Store times and durations as `INTEGER` milliseconds.
+2. Write the queries in `skills/<skill>/<skill>store/queries.sql`. For a new store package, add an entry to `backend/sqlc.yaml`.
+3. Run `make sqlc` and commit the generated `<skill>db`; CI runs `make sqlc-diff`.
+4. In `<skill>store.go`, convert between the generated rows and the skill's domain types.
 
 **Add shared infrastructure:**
 1. Add a client package in `internal/<client>/`.

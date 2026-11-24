@@ -172,6 +172,8 @@ Alfred downloads or builds these; none are included in the repository.
 | [Ministral 3 3B Instruct](https://huggingface.co/mistralai/Ministral-3-3B-Instruct-2512-GGUF) (Mistral AI) | local intent model (optional) | Apache-2.0 |
 | [ONNX Runtime](https://github.com/microsoft/onnxruntime) | running the wake word and VAD models | MIT |
 | [openWakeWord](https://github.com/dscripka/openWakeWord) | wake word feature models and training pipeline | code: Apache-2.0. Pre-trained models: **CC BY-NC-SA 4.0 (non-commercial)**. Its README doesn't say whether this covers the `melspectrogram.onnx` / `embedding_model.onnx` feature models Alfred downloads, so treat them as non-commercial. |
+| [SQLite](https://sqlite.org) via [modernc.org/sqlite](https://gitlab.com/cznic/sqlite) | the local database (timers) | SQLite: public domain; modernc.org/sqlite: BSD-3-Clause |
+| [sqlc](https://github.com/sqlc-dev/sqlc) | generates the database query code (development only) | MIT |
 | [Silero VAD](https://github.com/snakers4/silero-vad) | optional silence detector | MIT |
 | [miniaudio](https://miniaud.io/) via [malgo](https://github.com/gen2brain/malgo) | microphone | miniaudio: public domain / MIT-0; malgo: Unlicense |
 | [Piper](https://github.com/rhasspy/piper) | synthetic samples (training only) | GPL-3.0 (piper-tts), not distributed with Alfred |

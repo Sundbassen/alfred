@@ -15,29 +15,6 @@ type Announcer interface {
 	Speak(ctx context.Context, text string) error
 }
 
-// Kind is what the user set, derived from what they said.
-type Kind int
-
-const (
-	// KindTimer is a duration without a message: "set a timer for 10 minutes".
-	KindTimer Kind = iota
-	// KindAlarm is a clock time without a message: "wake me up at 7".
-	KindAlarm
-	// KindReminder has a message: "remind me to call mom in 10 minutes".
-	KindReminder
-)
-
-func (k Kind) String() string {
-	switch k {
-	case KindAlarm:
-		return "alarm"
-	case KindReminder:
-		return "reminder"
-	default:
-		return "timer"
-	}
-}
-
 // Ringing: chime (and speech) every ringEvery until stopped, for at most
 // ringFor.
 const (

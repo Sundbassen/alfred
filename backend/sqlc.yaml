@@ -1,0 +1,13 @@
+# sqlc generates type-safe query code: one entry per <skill>store package,
+# all over the shared schema (internal/store/migrations). Run make sqlc
+# after changing SQL; CI fails if the generated code is out of date.
+version: "2"
+sql:
+  - engine: sqlite
+    schema: internal/store/migrations
+    queries: skills/clock/clockstore/queries.sql
+    gen:
+      go:
+        package: clockdb
+        out: skills/clock/clockstore/clockdb
+        omit_unused_structs: true

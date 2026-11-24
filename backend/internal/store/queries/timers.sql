@@ -1,5 +1,4 @@
--- Queries for clockstore; sqlc generates clockdb from these and the shared
--- schema in internal/store/migrations (make sqlc).
+-- Timers (skills/clock, through clockstore).
 
 -- name: AddTimer :one
 INSERT INTO timers (kind, at, duration, message) VALUES (?, ?, ?, ?) RETURNING id;

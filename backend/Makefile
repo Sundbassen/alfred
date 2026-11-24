@@ -143,8 +143,8 @@ test:
 vet:
 	go vet ./...
 
-# Generate the database query code (skills/<skill>/<skill>store/<skill>db)
-# from the queries and the shared schema in internal/store/migrations; see
+# Generate the database query code (internal/store/storedb) from
+# internal/store/queries and the schema in internal/store/migrations; see
 # sqlc.yaml. sqlc is pinned as a tool in tools.mod (no global install; the
 # first run builds it, ~20 s). sqlc-diff fails if the generated code is out
 # of date (CI).

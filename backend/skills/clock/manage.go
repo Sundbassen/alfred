@@ -99,7 +99,7 @@ func parseSelection(what string) selection {
 // remaining words as a time ("7 o'clock alarm", "10 minute timer") or as
 // words of a reminder's message ("call mom").
 func (sel selection) matches(e entry, now time.Time) bool {
-	if len(sel.kinds) > 0 && !slices.Contains(sel.kinds, e.kind) {
+	if len(sel.kinds) > 0 && !slices.Contains(sel.kinds, e.Kind) {
 		return false
 	}
 	if len(sel.words) == 0 {
@@ -108,12 +108,12 @@ func (sel selection) matches(e entry, now time.Time) bool {
 	text := strings.Join(sel.words, " ")
 	if w, err := parseWhen(text, now); err == nil {
 		if w.Duration > 0 {
-			return e.duration == w.Duration
+			return e.Duration == w.Duration
 		}
 		// "7" may mean 07:00 or 19:00.
-		return e.at.Minute() == w.At.Minute() && e.at.Hour()%12 == w.At.Hour()%12
+		return e.At.Minute() == w.At.Minute() && e.At.Hour()%12 == w.At.Hour()%12
 	}
-	message := " " + e.message + " "
+	message := " " + e.Message + " "
 	for _, w := range strings.Fields(secondPerson(text)) {
 		if !strings.Contains(message, " "+w+" ") {
 			return false
@@ -146,7 +146,7 @@ func (h *handler) cancelTimer(ctx context.Context, i CancelTimer) (assistant.Res
 	sel := parseSelection(i.What)
 	var all, matched []entry
 	for _, e := range h.timers.list() {
-		if len(sel.kinds) == 0 || slices.Contains(sel.kinds, e.kind) {
+		if len(sel.kinds) == 0 || slices.Contains(sel.kinds, e.Kind) {
 			all = append(all, e)
 		}
 		if sel.matches(e, now) {
@@ -172,9 +172,9 @@ func (h *handler) cancelTimer(ctx context.Context, i CancelTimer) (assistant.Res
 		}
 	}
 
-	ids := make([]int, len(matched))
+	ids := make([]int64, len(matched))
 	for i, e := range matched {
-		ids[i] = e.id
+		ids[i] = e.ID
 	}
 	h.timers.cancel(ids...)
 	if len(matched) == 1 {
@@ -210,13 +210,13 @@ func listText(entries []entry, now time.Time) string {
 // name names an entry: "your timer for 10 minutes", "your alarm for
 // 07:00", "your reminder to call your mom".
 func (e entry) name(now time.Time) string {
-	switch e.kind {
+	switch e.Kind {
 	case KindTimer:
-		return "your timer for " + formatDuration(e.duration)
+		return "your timer for " + formatDuration(e.Duration)
 	case KindAlarm:
-		return "your alarm for " + formatClock(e.at, now)
+		return "your alarm for " + formatClock(e.At, now)
 	default:
-		return "your reminder to " + e.message
+		return "your reminder to " + e.Message
 	}
 }
 
@@ -228,14 +228,14 @@ func (e entry) status(now time.Time) string {
 	switch {
 	case e.ringing():
 		return name + " is going off."
-	case e.kind == KindTimer:
-		return name + " has " + formatRemaining(e.at.Sub(now)) + " left."
-	case e.kind == KindAlarm:
-		return "Your alarm is set for " + formatClock(e.at, now) + "."
-	case e.duration > 0:
-		return name + " is in " + formatRemaining(e.at.Sub(now)) + "."
+	case e.Kind == KindTimer:
+		return name + " has " + formatRemaining(e.At.Sub(now)) + " left."
+	case e.Kind == KindAlarm:
+		return "Your alarm is set for " + formatClock(e.At, now) + "."
+	case e.Duration > 0:
+		return name + " is in " + formatRemaining(e.At.Sub(now)) + "."
 	default:
-		return name + " is at " + formatClock(e.at, now) + "."
+		return name + " is at " + formatClock(e.At, now) + "."
 	}
 }
 

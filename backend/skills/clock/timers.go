@@ -6,6 +6,8 @@ import (
 	"slices"
 	"sync"
 	"time"
+
+	"gitlab.com/tozd/go/errors"
 )
 
 // Announcer is how timers get attention when they go off: app.Output, which
@@ -22,52 +24,106 @@ const (
 	ringFor   = 5 * time.Minute
 )
 
-// Timers holds the pending and ringing timers, alarms and reminders, in
-// memory (they do not survive a restart yet).
+// Store keeps timers across restarts (clockstore, in the local database).
+type Store interface {
+	// Add saves a timer and returns it with its ID.
+	Add(ctx context.Context, t Timer) (Timer, error)
+	// Delete removes a timer; deleting one that is gone is not an error.
+	Delete(ctx context.Context, id int64) error
+	// Pending returns every saved timer.
+	Pending(ctx context.Context) ([]Timer, error)
+}
+
+// maxMissed is how overdue a timer may be at startup (Alfred was down when
+// it was due) and still go off, late; older ones are dropped.
+const maxMissed = time.Hour
+
+// storeTimeout bounds store calls made in the background.
+const storeTimeout = 5 * time.Second
+
+// Timers holds the pending and ringing timers, alarms and reminders. The
+// pending ones are saved in the Store, so they survive a restart (Restore);
+// one that goes off or is cancelled is deleted from it.
 type Timers struct {
 	out    Announcer
+	store  Store
 	logger *slog.Logger
 
 	mu      sync.Mutex
-	nextID  int
-	entries map[int]*entry
+	entries map[int64]*entry
 }
 
-// entry is one timer, alarm or reminder.
+// entry is a Timer plus its runtime state.
 type entry struct {
-	id       int
-	kind     Kind
-	at       time.Time
-	duration time.Duration // for timers: what was asked for
-	message  string        // for reminders, in the second person
+	Timer
 
-	timer    *time.Timer        // fires at `at`
+	timer    *time.Timer        // fires at At
 	stopRing context.CancelFunc // set while ringing
 }
 
-// NewTimers returns an empty set of timers announcing through out.
-func NewTimers(out Announcer, logger *slog.Logger) *Timers {
+// NewTimers returns an empty set of timers announcing through out and saved
+// in store. Call Restore once to bring back the saved ones.
+func NewTimers(out Announcer, store Store, logger *slog.Logger) *Timers {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
-	return &Timers{out: out, logger: logger, entries: make(map[int]*entry)}
+	return &Timers{out: out, store: store, logger: logger, entries: make(map[int64]*entry)}
 }
 
-// add schedules a timer, alarm or reminder.
-func (t *Timers) add(kind Kind, w when, message string) *entry {
+// Restore schedules the saved timers. One that came due while Alfred was
+// down goes off now if it is at most maxMissed overdue; older ones are
+// deleted with a log line.
+func (t *Timers) Restore(ctx context.Context) error {
+	saved, err := t.store.Pending(ctx)
+	if err != nil {
+		return errors.WithMessage(err, "restore timers")
+	}
+	now := time.Now()
+	for _, tm := range saved {
+		if overdue := now.Sub(tm.At); overdue > maxMissed {
+			t.logger.Warn("Dropping a timer missed while Alfred was down", slog.String("kind", tm.Kind.String()),
+				slog.Time("at", tm.At), slog.String("message", tm.Message))
+			if err := t.store.Delete(ctx, tm.ID); err != nil {
+				return errors.WithMessage(err, "drop missed timer")
+			}
+			continue
+		} else if overdue > 0 {
+			t.logger.Info("A timer was due while Alfred was down; going off late", slog.String("kind", tm.Kind.String()),
+				slog.Duration("late", overdue))
+		}
+		t.schedule(tm)
+	}
+	if len(saved) > 0 {
+		t.logger.Info("Restored timers", slog.Int("count", len(saved)))
+	}
+	return nil
+}
+
+// add saves and schedules a timer, alarm or reminder.
+func (t *Timers) add(ctx context.Context, tm Timer) (*entry, error) {
+	tm, err := t.store.Add(ctx, tm)
+	if err != nil {
+		return nil, errors.WithMessage(err, "save timer")
+	}
+	t.logger.Info("Timer set", slog.String("kind", tm.Kind.String()), slog.Time("at", tm.At),
+		slog.String("message", tm.Message))
+	return t.schedule(tm), nil
+}
+
+// schedule arms a saved timer.
+func (t *Timers) schedule(tm Timer) *entry {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.nextID++
-	e := &entry{id: t.nextID, kind: kind, at: w.At, duration: w.Duration, message: message}
-	t.entries[e.id] = e
-	e.timer = time.AfterFunc(time.Until(w.At), func() { t.fire(e.id) })
-	t.logger.Info("Timer set", slog.String("kind", kind.String()), slog.Time("at", w.At),
-		slog.String("message", message))
+	e := &entry{Timer: tm}
+	t.entries[tm.ID] = e
+	e.timer = time.AfterFunc(time.Until(tm.At), func() { t.fire(tm.ID) })
 	return e
 }
 
-// fire rings an entry until it is stopped or ringFor passes, then removes it.
-func (t *Timers) fire(id int) {
+// fire rings an entry until it is stopped or ringFor passes, then removes
+// it. It is deleted from the store as it goes off, so a restart while it
+// rings does not ring it again.
+func (t *Timers) fire(id int64) {
 	t.mu.Lock()
 	e, ok := t.entries[id]
 	if !ok {
@@ -79,12 +135,23 @@ func (t *Timers) fire(id int) {
 	e.stopRing = cancel
 	t.mu.Unlock()
 
-	t.logger.Info("Timer going off", slog.String("kind", e.kind.String()), slog.String("message", e.message))
+	t.logger.Info("Timer going off", slog.String("kind", e.Kind.String()), slog.String("message", e.Message))
+	t.forget(id)
 	t.ring(ctx, e)
 
 	t.mu.Lock()
 	delete(t.entries, id)
 	t.mu.Unlock()
+}
+
+// forget deletes a timer from the store, logging a failure: the timer has
+// gone off or been cancelled either way, so the caller carries on.
+func (t *Timers) forget(id int64) {
+	ctx, cancel := context.WithTimeout(context.Background(), storeTimeout)
+	defer cancel()
+	if err := t.store.Delete(ctx, id); err != nil {
+		t.logger.Error("Failed to delete timer from the store", slog.Int64("id", id), slog.String("error", err.Error()))
+	}
 }
 
 func (t *Timers) ring(ctx context.Context, e *entry) {
@@ -102,7 +169,7 @@ func (t *Timers) ring(ctx context.Context, e *entry) {
 		}
 		next := start.Add(ringEvery)
 		if !next.Before(deadline) {
-			t.logger.Info("Timer gave up ringing", slog.String("kind", e.kind.String()))
+			t.logger.Info("Timer gave up ringing", slog.String("kind", e.Kind.String()))
 			return
 		}
 		select {
@@ -136,15 +203,15 @@ func (t *Timers) list() []entry {
 	for _, e := range t.entries {
 		entries = append(entries, *e)
 	}
-	slices.SortFunc(entries, func(a, b entry) int { return a.at.Compare(b.at) })
+	slices.SortFunc(entries, func(a, b entry) int { return a.At.Compare(b.At) })
 	return entries
 }
 
 // cancel cancels the entries with the given ids: pending ones never go
-// off, ringing ones stop.
-func (t *Timers) cancel(ids ...int) {
+// off (and are deleted from the store), ringing ones stop.
+func (t *Timers) cancel(ids ...int64) {
+	var pending []int64
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	for _, id := range ids {
 		e, ok := t.entries[id]
 		if !ok {
@@ -156,10 +223,16 @@ func (t *Timers) cancel(ids ...int) {
 			continue
 		}
 		delete(t.entries, id)
+		pending = append(pending, id)
+	}
+	t.mu.Unlock()
+	for _, id := range pending {
+		t.forget(id)
 	}
 }
 
-// Close cancels every pending timer and stops every ringing one.
+// Close stops every timer for shutdown: pending ones stay in the store, to
+// be restored at the next start; ringing ones stop.
 func (t *Timers) Close() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -178,11 +251,11 @@ func (e *entry) ringing() bool { return e.stopRing != nil }
 // ringText is what to say while ringing: nothing for an alarm (the chime
 // says it).
 func (e *entry) ringText() string {
-	switch e.kind {
+	switch e.Kind {
 	case KindReminder:
-		return "Reminder: " + e.message + "."
+		return "Reminder: " + e.Message + "."
 	case KindTimer:
-		return "Your timer for " + formatDuration(e.duration) + " is done."
+		return "Your timer for " + formatDuration(e.Duration) + " is done."
 	default:
 		return ""
 	}

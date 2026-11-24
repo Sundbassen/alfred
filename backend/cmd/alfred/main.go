@@ -14,6 +14,7 @@ import (
 	"github.com/sundbassen/alfred/internal/assistant/match"
 	"github.com/sundbassen/alfred/internal/platform/fault"
 	"github.com/sundbassen/alfred/internal/platform/logging"
+	"github.com/sundbassen/alfred/internal/store"
 	"github.com/sundbassen/alfred/internal/voice/mic"
 	"github.com/sundbassen/alfred/internal/voice/sound"
 	"github.com/sundbassen/alfred/internal/voice/tts"
@@ -59,7 +60,13 @@ func main() {
 	// command endpointing and transcription
 	router := assistant.NewRouter()
 	cfg := wiring.ConfigFromEnv()
-	if err := wiring.RegisterSkills(router, cfg, out, logger); err != nil {
+	db, err := store.Open(context.Background(), cfg.DB)
+	if err != nil {
+		logger.Error("Failed to open the database", slog.String("path", cfg.DB), slog.Any("error", err))
+		os.Exit(1)
+	}
+	defer db.Close()
+	if err := wiring.RegisterSkills(context.Background(), router, cfg, out, db, logger); err != nil {
 		logger.Error("Failed to set up skills", slog.Any("error", err))
 		os.Exit(1)
 	}

@@ -22,6 +22,8 @@ type Store struct {
 	q *storedb.Queries
 }
 
+var _ clock.Store = (*Store)(nil)
+
 // New returns a Store over a database opened by store.Open.
 func New(db *sql.DB) *Store {
 	return &Store{q: storedb.New(db)}

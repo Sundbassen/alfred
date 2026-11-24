@@ -2,12 +2,16 @@ package clock
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"testing"
 	"time"
 
+	"gitlab.com/tozd/go/errors"
+
 	"github.com/sundbassen/alfred/internal/assistant"
 	"github.com/sundbassen/alfred/internal/assistant/match"
+	"github.com/sundbassen/alfred/internal/platform/fault"
 )
 
 // fakeAnnouncer records chimes and speech.
@@ -37,9 +41,65 @@ func (f *fakeAnnouncer) counts() (int, []string) {
 	return f.chimes, append([]string(nil), f.said...)
 }
 
+// fakeStore keeps timers in memory, like clockstore does in the database.
+type fakeStore struct {
+	mu     sync.Mutex
+	nextID int64
+	timers map[int64]Timer
+	err    error // returned by Add
+}
+
+func newFakeStore() *fakeStore { return &fakeStore{timers: make(map[int64]Timer)} }
+
+func (s *fakeStore) Add(_ context.Context, t Timer) (Timer, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.err != nil {
+		return Timer{}, s.err
+	}
+	s.nextID++
+	t.ID = s.nextID
+	s.timers[t.ID] = t
+	return t, nil
+}
+
+func (s *fakeStore) Delete(_ context.Context, id int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.timers, id)
+	return nil
+}
+
+func (s *fakeStore) Pending(context.Context) ([]Timer, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var ts []Timer
+	for _, t := range s.timers {
+		ts = append(ts, t)
+	}
+	slices.SortFunc(ts, func(a, b Timer) int { return a.At.Compare(b.At) })
+	return ts, nil
+}
+
+func (s *fakeStore) len() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.timers)
+}
+
+// mustAdd saves and schedules a timer.
+func mustAdd(t *testing.T, timers *Timers, tm Timer) *entry {
+	t.Helper()
+	e, err := timers.add(context.Background(), tm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return e
+}
+
 func TestAskTime(t *testing.T) {
 	r := assistant.NewRouter()
-	register(r, NewTimers(&fakeAnnouncer{}, nil), func() time.Time { return time.Date(2026, 11, 23, 9, 5, 0, 0, time.Local) })
+	register(r, NewTimers(&fakeAnnouncer{}, newFakeStore(), nil), func() time.Time { return time.Date(2026, 11, 23, 9, 5, 0, 0, time.Local) })
 
 	resp, err := r.Dispatch(context.Background(), AskTime{})
 	if err != nil {
@@ -70,7 +130,7 @@ func recognize(t *testing.T, r *assistant.Router, transcript string) assistant.I
 
 func TestPhrasesAreRecognized(t *testing.T) {
 	r := assistant.NewRouter()
-	timers := NewTimers(&fakeAnnouncer{}, nil)
+	timers := NewTimers(&fakeAnnouncer{}, newFakeStore(), nil)
 	defer timers.Close()
 	Register(r, timers)
 	tests := map[string]assistant.Intent{
@@ -109,7 +169,7 @@ func TestSetTimerReplies(t *testing.T) {
 	}
 	for transcript, want := range tests {
 		r := assistant.NewRouter()
-		timers := NewTimers(&fakeAnnouncer{}, nil)
+		timers := NewTimers(&fakeAnnouncer{}, newFakeStore(), nil)
 		register(r, timers, func() time.Time { return at10 })
 		resp, err := r.Dispatch(context.Background(), recognize(t, r, transcript))
 		timers.Close()
@@ -128,7 +188,7 @@ func TestSetTimerErrors(t *testing.T) {
 	}
 	for transcript, want := range tests {
 		r := assistant.NewRouter()
-		register(r, NewTimers(&fakeAnnouncer{}, nil), func() time.Time { return at10 })
+		register(r, NewTimers(&fakeAnnouncer{}, newFakeStore(), nil), func() time.Time { return at10 })
 		_, err := r.Dispatch(context.Background(), recognize(t, r, transcript))
 		if got := assistant.SpokenText(err); got != want {
 			t.Errorf("%q: %q (%v), want %q", transcript, got, err, want)
@@ -136,10 +196,21 @@ func TestSetTimerErrors(t *testing.T) {
 	}
 }
 
+func TestSetTimerStoreFailure(t *testing.T) {
+	r := assistant.NewRouter()
+	store := newFakeStore()
+	store.err = errors.WithMessage(fault.ErrInternal, "disk full")
+	register(r, NewTimers(&fakeAnnouncer{}, store, nil), func() time.Time { return at10 })
+	_, err := r.Dispatch(context.Background(), recognize(t, r, "Set a timer for 10 minutes."))
+	if !errors.Is(err, fault.ErrInternal) || assistant.SpokenText(err) != assistant.FailedText {
+		t.Errorf("err = %v (%q)", err, assistant.SpokenText(err))
+	}
+}
+
 func TestRecognizerFilledBothSlots(t *testing.T) {
 	// The model tier may put the time in When and also leave it in Message.
 	r := assistant.NewRouter()
-	timers := NewTimers(&fakeAnnouncer{}, nil)
+	timers := NewTimers(&fakeAnnouncer{}, newFakeStore(), nil)
 	defer timers.Close()
 	register(r, timers, func() time.Time { return at10 })
 	resp, err := r.Dispatch(context.Background(), SetTimer{When: "10 minutes", Message: "call mom in 10 minutes"})

@@ -6,6 +6,7 @@ package wiring
 
 import (
 	"context"
+	"database/sql"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -18,7 +19,9 @@ import (
 	"github.com/sundbassen/alfred/internal/assistant"
 	"github.com/sundbassen/alfred/internal/llm/ministral"
 	"github.com/sundbassen/alfred/internal/platform/fault"
+	"github.com/sundbassen/alfred/internal/store"
 	"github.com/sundbassen/alfred/skills/clock"
+	"github.com/sundbassen/alfred/skills/clock/clockstore"
 	"github.com/sundbassen/alfred/skills/music"
 	"github.com/sundbassen/alfred/skills/music/musicservice"
 	"github.com/sundbassen/alfred/skills/stop"
@@ -26,6 +29,8 @@ import (
 
 // Config holds the skill providers' and recognizers' settings.
 type Config struct {
+	// DB is the local database file (internal/store), e.g. for timers.
+	DB string
 	// Spotify for the music skill; an empty ClientID disables it.
 	Spotify musicservice.SpotifyConfig
 	// IntentModel is the local model recognizing what the phrase
@@ -43,6 +48,7 @@ type IntentModelConfig struct {
 
 // ConfigFromEnv reads Config from the environment:
 //
+//	ALFRED_DB                  local database (default $XDG_STATE_HOME/alfred/alfred.db, i.e. ~/.local/state/alfred/alfred.db)
 //	ALFRED_SPOTIFY_CLIENT_ID   Spotify app client ID (empty: no music skill)
 //	ALFRED_SPOTIFY_TOKEN_FILE  login from make spotify-login (default ~/.config/alfred/spotify-token.json)
 //	ALFRED_SPOTIFY_DEVICE      Spotify Connect name of this speaker (default "Alfred")
@@ -52,6 +58,7 @@ type IntentModelConfig struct {
 //	ALFRED_INTENT_MODEL_TIMEOUT  per recognition, e.g. "3s" (default 3s)
 func ConfigFromEnv() Config {
 	return Config{
+		DB: envOr("ALFRED_DB", store.DefaultPath()),
 		Spotify: musicservice.SpotifyConfig{
 			ClientID:  os.Getenv("ALFRED_SPOTIFY_CLIENT_ID"),
 			TokenFile: envOr("ALFRED_SPOTIFY_TOKEN_FILE", musicservice.DefaultSpotifyTokenFile()),
@@ -67,12 +74,16 @@ func ConfigFromEnv() Config {
 }
 
 // RegisterSkills constructs the skill providers and registers every skill
-// on r. Skills that speak on their own (timers) do so through out. A skill
-// whose provider is not configured, or not logged in, is left out with a
-// log line, so Alfred still runs without it. Other provider failures are
-// returned.
-func RegisterSkills(r *assistant.Router, cfg Config, out *app.Output, logger *slog.Logger) error {
-	timers := clock.NewTimers(out, logger)
+// on r. Skills that speak on their own (timers) do so through out; skills
+// that keep state across restarts keep it in db (store.Open). A skill whose
+// provider is not configured, or not logged in, is left out with a log
+// line, so Alfred still runs without it. Other provider failures, and a
+// failure to restore saved state, are returned.
+func RegisterSkills(ctx context.Context, r *assistant.Router, cfg Config, out *app.Output, db *sql.DB, logger *slog.Logger) error {
+	timers := clock.NewTimers(out, clockstore.New(db), logger)
+	if err := timers.Restore(ctx); err != nil {
+		return err
+	}
 	clock.Register(r, timers)
 
 	player, err := registerMusic(r, cfg.Spotify, logger)

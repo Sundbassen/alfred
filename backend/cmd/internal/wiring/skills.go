@@ -13,6 +13,7 @@ import (
 
 	"gitlab.com/tozd/go/errors"
 
+	"github.com/sundbassen/alfred/internal/app"
 	"github.com/sundbassen/alfred/internal/assistant"
 	"github.com/sundbassen/alfred/internal/llm/ministral"
 	"github.com/sundbassen/alfred/internal/platform/fault"
@@ -64,11 +65,12 @@ func ConfigFromEnv() Config {
 }
 
 // RegisterSkills constructs the skill providers and registers every skill
-// on r. A skill whose provider is not configured, or not logged in, is left
-// out with a log line, so Alfred still runs without it. Other provider
-// failures are returned.
-func RegisterSkills(r *assistant.Router, cfg Config, logger *slog.Logger) error {
-	clock.Register(r)
+// on r. Skills that speak on their own (timers) do so through out. A skill
+// whose provider is not configured, or not logged in, is left out with a
+// log line, so Alfred still runs without it. Other provider failures are
+// returned.
+func RegisterSkills(r *assistant.Router, cfg Config, out *app.Output, logger *slog.Logger) error {
+	clock.Register(r, clock.NewTimers(out, logger))
 
 	if err := registerMusic(r, cfg.Spotify, logger); err != nil {
 		return err

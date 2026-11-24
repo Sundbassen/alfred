@@ -59,7 +59,7 @@ func main() {
 	// command endpointing and transcription
 	router := assistant.NewRouter()
 	cfg := wiring.ConfigFromEnv()
-	if err := wiring.RegisterSkills(router, cfg, logger); err != nil {
+	if err := wiring.RegisterSkills(router, cfg, out, logger); err != nil {
 		logger.Error("Failed to set up skills", slog.Any("error", err))
 		os.Exit(1)
 	}

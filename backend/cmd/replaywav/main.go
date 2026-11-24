@@ -23,6 +23,7 @@ import (
 	"github.com/sundbassen/alfred/internal/assistant/match"
 	"github.com/sundbassen/alfred/internal/platform/logging"
 	"github.com/sundbassen/alfred/internal/platform/wav"
+	"github.com/sundbassen/alfred/internal/voice/tts"
 	"gitlab.com/tozd/go/errors"
 )
 
@@ -51,7 +52,10 @@ func main() {
 
 	router := assistant.NewRouter()
 	cfg := wiring.ConfigFromEnv()
-	if err := wiring.RegisterSkills(router, cfg, logger); err != nil {
+	// Replies are printed, not spoken; timers set in a replay never go off
+	// (the replay ends first) but would only be logged.
+	out := app.NewOutput(tts.NewLogSpeaker(logger), nil)
+	if err := wiring.RegisterSkills(router, cfg, out, logger); err != nil {
 		logger.Error("Failed to set up skills", slog.Any("error", err))
 		os.Exit(1)
 	}

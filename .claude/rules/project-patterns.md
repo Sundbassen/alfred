@@ -12,6 +12,7 @@ internal/  may import only internal/       (plus the standard library and third-
 
 - Nothing imports `cmd/`. Go's `internal` rule already stops anything outside `cmd/` from importing `cmd/internal/...`.
 - `make layers` (run in CI) fails if `internal/` imports `skills/` or `cmd/`, or `skills/` imports `cmd/`.
+- **Within a skill:** `<skill>service` and `<skill>store` both import the skill (its domain types and interfaces), never each other, and the skill imports neither. A provider that needs persistence takes the skill's `Store` interface in its constructor; wiring passes `<skill>store.New(db)` to it.
 
 ## What goes where
 
@@ -20,8 +21,8 @@ internal/  may import only internal/       (plus the standard library and third-
 | `cmd/<binary>/` | `main` only: flags, logging, lifecycle. Binaries: `alfred`, `replaywav`, `reviewrecordings`, `wakestats`, `micdebug` |
 | `cmd/internal/wiring/` | The composition root. `skills.go` constructs the providers (external implementations) and calls every skill's `Register`. It's the one place to see which providers Alfred uses |
 | `skills/<skill>/` | One skill: its intent types, its handlers, the interfaces its handlers need, and `Register(r *assistant.Router, deps...)` registering all of its intents. There is no `skills` package, only one package per skill |
-| `skills/<skill>/<skill>service/` | Providers implementing that skill's interfaces, one file per provider (e.g. `musicservice/spotify.go` with `NewSpotify(...) *Spotify`). Constructors return concrete types. The skill never imports this package; this package may import the skill (for shared types) and `internal/` |
-| `skills/<skill>/<skill>store/` | Persistence for that skill: `<skill>store.go` implements the skill's `Store` interface. It only calls the generated queries (`internal/store/storedb`) and converts their rows to and from the skill's domain types. Kept separate from `<skill>service` (external providers) |
+| `skills/<skill>/<skill>service/` | Providers implementing that skill's interfaces, one file per provider (e.g. `musicservice/spotify.go` with `NewSpotify(...) *Spotify`). Constructors return concrete types. The skill never imports this package; this package may import the skill (for its types and interfaces) and `internal/`. It depends on the skill's `Store` interface, never on `<skill>store` |
+| `skills/<skill>/<skill>store/` | Persistence for that skill: `<skill>store.go` implements the skill's `Store` interface. It only calls the generated queries (`internal/store/storedb`) and converts their rows to and from the skill's domain types. Kept separate from `<skill>service` (external providers): it imports only the skill and `internal/store/storedb`, and nothing but wiring imports it |
 | `internal/assistant/` | The intent contract and router: `Intent`, `Handle[I]`, `Router`, `Response`, `Spec`, `SpokenError`, `SpokenText` |
 | `internal/assistant/match/` | The phrase-template recognizer (the first tier) |
 | `internal/assistant/llm/` | The model-agnostic language-model recognizer: prompt and JSON schema from the intents, validation of the answer. Models plug in through its `Model` interface. Further recognizers (e.g. the Claude fallback) go alongside and produce the same `assistant.Recognition` |

@@ -159,37 +159,94 @@ const maxPromptWords = 150
 
 // Prompt returns an initial prompt for speech-to-text that biases decoding
 // toward the command phrases, written as separate sentences, e.g. "What
-// time is it? Tell me the time." Phrases are deduplicated, kept in
-// registration order, and cut off at maxPromptWords. Templates contribute
-// their literal words ("play {query}" becomes "Play.").
+// time is it? Set a timer. Play." It is cut off at maxPromptWords, so every
+// intent gets a fair share: phrases are taken round-robin across intents
+// (each intent's first phrase, then each one's second, …), deduplicated.
+// A template contributes its literal words before the first slot, without
+// trailing function words ("set a timer for {when}" becomes "Set a
+// timer."), and nothing if only question or function words remain ("what
+// is on the {list}").
 //
 // Sentences, not a comma-separated list: whisper continues the style of its
 // prompt, and after a list prompt greedy decoding looped ("what time is it,
 // what is it, what is it, ...") until the temperature fallback rescued it
 // at ~10x the latency.
 func (m *Matcher) Prompt() string {
+	// Candidate sentences per intent, in registration order.
+	var order []string
+	byIntent := make(map[string][]string)
+	for _, p := range m.phrases {
+		text := promptText(p)
+		if text == "" {
+			continue
+		}
+		if _, ok := byIntent[p.intent]; !ok {
+			order = append(order, p.intent)
+		}
+		byIntent[p.intent] = append(byIntent[p.intent], text)
+	}
+
 	var sentences []string
 	seen := make(map[string]bool)
 	words := 0
-	for _, p := range m.phrases {
-		text := strings.Join(strings.Fields(strings.ToLower(slotPattern.ReplaceAllString(p.text, ""))), " ")
-		if text == "" || seen[text] {
-			continue
+	for round := 0; ; round++ {
+		added := false
+		for _, intent := range order {
+			texts := byIntent[intent]
+			if round >= len(texts) {
+				continue
+			}
+			added = true
+			text := texts[round]
+			fields := strings.Fields(text)
+			if seen[text] || words+len(fields) > maxPromptWords {
+				continue
+			}
+			seen[text] = true
+			words += len(fields)
+			end := "."
+			if questionWords[fields[0]] {
+				end = "?"
+			}
+			sentences = append(sentences, strings.ToUpper(text[:1])+text[1:]+end)
 		}
-		fields := strings.Fields(text)
-		if words+len(fields) > maxPromptWords {
+		if !added {
 			break
 		}
-		seen[text] = true
-		words += len(fields)
-
-		end := "."
-		if questionWords[fields[0]] {
-			end = "?"
-		}
-		sentences = append(sentences, strings.ToUpper(text[:1])+text[1:]+end)
 	}
 	return strings.Join(sentences, " ")
+}
+
+// promptText is a phrase as it goes into the prompt (lowercase, without
+// slots), or "" for a template fragment that would only add noise.
+func promptText(p phrase) string {
+	text := p.text
+	if p.template != nil {
+		text = text[:slotPattern.FindStringIndex(text)[0]]
+	}
+	fields := strings.Fields(strings.ToLower(text))
+	if p.template != nil {
+		for len(fields) > 0 && functionWords[fields[len(fields)-1]] {
+			fields = fields[:len(fields)-1]
+		}
+		meaningful := false
+		for _, f := range fields {
+			if !functionWords[f] && !questionWords[f] {
+				meaningful = true
+			}
+		}
+		if !meaningful {
+			return ""
+		}
+	}
+	return strings.Join(fields, " ")
+}
+
+// functionWords are stripped from the end of a template's literal words.
+var functionWords = map[string]bool{
+	"the": true, "a": true, "an": true, "my": true, "your": true, "some": true, "any": true,
+	"to": true, "for": true, "at": true, "in": true, "on": true, "of": true, "off": true,
+	"from": true, "with": true, "by": true, "about": true, "called": true, "and": true,
 }
 
 var questionWords = map[string]bool{

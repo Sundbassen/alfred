@@ -90,6 +90,18 @@ func TestPrompt(t *testing.T) {
 		t.Errorf("empty matcher Prompt() = %q, want empty", got)
 	}
 
+	// Templates: the literal words before the first slot, without trailing
+	// function words; fragments of only question or function words are
+	// left out.
+	tm := New(routes(
+		route("timer", "set a timer for {when}", "set a {when} timer"),
+		route("list", "what is on the {list}", "add {items} to the {list}"),
+		route("play", "play {query}", "play some {query}"),
+	))
+	if got, want := tm.Prompt(), "Set a timer. Add. Play. Set."; got != want {
+		t.Errorf("templates: Prompt() = %q, want %q", got, want)
+	}
+
 	var many []string
 	for i := range 100 {
 		many = append(many, strings.Repeat("word ", 3)+strconv.Itoa(i))
@@ -97,6 +109,24 @@ func TestPrompt(t *testing.T) {
 	words := len(strings.Fields(New(routes(route("many", many...))).Prompt()))
 	if words > maxPromptWords {
 		t.Errorf("long Prompt() has %d words, want at most %d", words, maxPromptWords)
+	}
+}
+
+func TestPromptIsFair(t *testing.T) {
+	// An intent with many phrases registered first must not crowd out the
+	// intents after it.
+	var many []string
+	for i := range 100 {
+		many = append(many, "turn on lamp number "+strconv.Itoa(i))
+	}
+	p := New(routes(route("lamps", many...), route("time", "what time is it"), route("weather", "what is the weather"))).Prompt()
+	for _, want := range []string{"Turn on lamp number 0.", "What time is it?", "What is the weather?"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("Prompt() lacks %q:\n%s", want, p)
+		}
+	}
+	if words := len(strings.Fields(p)); words > maxPromptWords {
+		t.Errorf("%d words, want at most %d", words, maxPromptWords)
 	}
 }
 
@@ -158,7 +188,8 @@ func TestTemplateNeedsSlotWords(t *testing.T) {
 
 func TestPromptTemplates(t *testing.T) {
 	m := New(routes(route("play", "play {query}", "play a radio with {artists}"), route("pause", "pause")))
-	if got, want := m.Prompt(), "Play. Play a radio with. Pause."; got != want {
+	// Round-robin: each intent's first phrase before any second one.
+	if got, want := m.Prompt(), "Play. Pause. Play a radio."; got != want {
 		t.Errorf("Prompt() = %q, want %q", got, want)
 	}
 }

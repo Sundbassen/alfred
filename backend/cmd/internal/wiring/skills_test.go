@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"golang.org/x/oauth2"
@@ -151,4 +152,33 @@ func TestTimersSurviveARestart(t *testing.T) {
 	if got := ask(t, start(), "How much time is left?"); got != "You have no timers, alarms or reminders." {
 		t.Errorf("after cancel and restart: %q", got)
 	}
+}
+
+func TestPromptCoversEveryIntent(t *testing.T) {
+	token := filepath.Join(t.TempDir(), "token.json")
+	if err := musicservice.SaveToken(token, &oauth2.Token{AccessToken: "a", RefreshToken: "r"}); err != nil {
+		t.Fatal(err)
+	}
+	r := assistant.NewRouter()
+	cfg := Config{Spotify: musicservice.SpotifyConfig{ClientID: "cid", TokenFile: token}}
+	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), slog.New(slog.DiscardHandler)); err != nil {
+		t.Fatal(err)
+	}
+	prompt := strings.ToLower(match.New(r.Intents()).Prompt())
+	if words := len(strings.Fields(prompt)); words > 150 {
+		t.Errorf("prompt has %d words", words)
+	}
+	// Every intent with a plain phrase gets at least its first one in.
+	for _, rt := range r.Intents() {
+		for _, phrase := range rt.Spec.Phrases {
+			if strings.Contains(phrase, "{") {
+				continue
+			}
+			if !strings.Contains(prompt, strings.ToLower(phrase)) {
+				t.Errorf("prompt lacks %s's %q:\n%s", rt.Name, phrase, prompt)
+			}
+			break
+		}
+	}
+	t.Logf("%d words: %s", len(strings.Fields(prompt)), prompt)
 }

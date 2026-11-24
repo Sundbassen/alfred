@@ -148,20 +148,23 @@ func (h *handler) setTimer(ctx context.Context, i SetTimer) (assistant.Response,
 	case w.Duration > 0:
 		kind = KindTimer
 	}
-	e := h.timers.add(kind, w, secondPerson(message))
+	e, err := h.timers.add(ctx, Timer{Kind: kind, At: w.At, Duration: w.Duration, Message: secondPerson(message)})
+	if err != nil {
+		return assistant.Response{}, err
+	}
 
 	var text string
-	switch e.kind {
+	switch e.Kind {
 	case KindTimer:
-		text = "Timer set for " + formatDuration(e.duration) + "."
+		text = "Timer set for " + formatDuration(e.Duration) + "."
 	case KindAlarm:
-		text = "Alarm set for " + formatClock(e.at, now) + "."
+		text = "Alarm set for " + formatClock(e.At, now) + "."
 	case KindReminder:
-		at := "at " + formatClock(e.at, now)
-		if e.duration > 0 {
-			at = "in " + formatDuration(e.duration)
+		at := "at " + formatClock(e.At, now)
+		if e.Duration > 0 {
+			at = "in " + formatDuration(e.Duration)
 		}
-		text = "OK, I'll remind you to " + e.message + " " + at + "."
+		text = "OK, I'll remind you to " + e.Message + " " + at + "."
 	}
 	return assistant.Response{Text: text}, nil
 }

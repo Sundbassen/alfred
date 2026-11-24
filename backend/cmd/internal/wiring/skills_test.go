@@ -2,6 +2,7 @@ package wiring
 
 import (
 	"context"
+	"database/sql"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"github.com/sundbassen/alfred/internal/app"
 	"github.com/sundbassen/alfred/internal/assistant"
 	"github.com/sundbassen/alfred/internal/assistant/match"
+	"github.com/sundbassen/alfred/internal/store"
 	"github.com/sundbassen/alfred/internal/voice/tts"
 	"github.com/sundbassen/alfred/skills/music/musicservice"
 )
@@ -19,7 +21,7 @@ import (
 func intents(t *testing.T, cfg Config) map[string]bool {
 	t.Helper()
 	r := assistant.NewRouter()
-	if err := RegisterSkills(r, cfg, testOutput(), slog.New(slog.NewTextHandler(io.Discard, nil))); err != nil {
+	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), slog.New(slog.NewTextHandler(io.Discard, nil))); err != nil {
 		t.Fatal(err)
 	}
 	names := make(map[string]bool)
@@ -52,7 +54,7 @@ func TestMusicNeedsSpotifyConfigAndLogin(t *testing.T) {
 	// Bare "stop" goes to the stop skill (ringing timers first), not to
 	// music_pause.
 	r := assistant.NewRouter()
-	if err := RegisterSkills(r, cfg, testOutput(), slog.New(slog.DiscardHandler)); err != nil {
+	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatal(err)
 	}
 	if rec, err := match.New(r.Intents()).Recognize(context.Background(), "Stop."); err != nil || rec.Intent != "stop" {
@@ -70,7 +72,7 @@ func TestAssistantWithoutModelUsesTemplates(t *testing.T) {
 	r := assistant.NewRouter()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cfg := Config{IntentModel: IntentModelConfig{Server: filepath.Join(t.TempDir(), "llama-server"), ModelFile: "missing.gguf"}}
-	if err := RegisterSkills(r, cfg, testOutput(), logger); err != nil {
+	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), logger); err != nil {
 		t.Fatal(err)
 	}
 	a, err := NewAssistant(r, cfg, logger)
@@ -92,4 +94,61 @@ func TestAssistantWithoutModelUsesTemplates(t *testing.T) {
 
 func testOutput() *app.Output {
 	return app.NewOutput(tts.NewLogSpeaker(slog.New(slog.DiscardHandler)), nil)
+}
+
+func testDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "alfred.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
+}
+
+// ask recognizes a transcript with the templates and runs its handler.
+func ask(t *testing.T, r *assistant.Router, transcript string) string {
+	t.Helper()
+	rec, err := match.New(r.Intents()).Recognize(context.Background(), transcript)
+	if err != nil {
+		t.Fatalf("%q: %v", transcript, err)
+	}
+	intent, err := r.New(rec.Intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if intent, err = assistant.Fill(intent, rec.Slots); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := r.Dispatch(context.Background(), intent)
+	if err != nil {
+		return assistant.SpokenText(err)
+	}
+	return resp.Text
+}
+
+func TestTimersSurviveARestart(t *testing.T) {
+	db := testDB(t)
+	start := func() *assistant.Router {
+		r := assistant.NewRouter()
+		if err := RegisterSkills(context.Background(), r, Config{}, testOutput(), db, slog.New(slog.DiscardHandler)); err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+
+	if got := ask(t, start(), "Remind me to call my mom in 2 hours."); got != "OK, I'll remind you to call your mom in 2 hours." {
+		t.Fatalf("set: %q", got)
+	}
+	// A new start over the same database brings the reminder back.
+	r := start()
+	if got := ask(t, r, "What reminders do I have?"); got != "Your reminder to call your mom is in 2 hours." {
+		t.Errorf("after restart: %q", got)
+	}
+	if got := ask(t, r, "Cancel the reminder to call my mom."); got != "Cancelled your reminder to call your mom." {
+		t.Errorf("cancel: %q", got)
+	}
+	if got := ask(t, start(), "How much time is left?"); got != "You have no timers, alarms or reminders." {
+		t.Errorf("after cancel and restart: %q", got)
+	}
 }

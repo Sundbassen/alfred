@@ -23,7 +23,7 @@ func say(t *testing.T, r *assistant.Router, transcript string) string {
 // newManaged registers the clock in a synctest bubble, with the fake clock.
 func newManaged(t *testing.T) (*assistant.Router, *Timers, *fakeAnnouncer) {
 	out := &fakeAnnouncer{}
-	timers := NewTimers(out, nil)
+	timers := NewTimers(out, newFakeStore(), nil)
 	t.Cleanup(timers.Close)
 	r := assistant.NewRouter()
 	register(r, timers, time.Now)

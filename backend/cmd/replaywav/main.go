@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/sundbassen/alfred/cmd/internal/wiring"
@@ -23,6 +24,7 @@ import (
 	"github.com/sundbassen/alfred/internal/assistant/match"
 	"github.com/sundbassen/alfred/internal/platform/logging"
 	"github.com/sundbassen/alfred/internal/platform/wav"
+	"github.com/sundbassen/alfred/internal/store"
 	"github.com/sundbassen/alfred/internal/voice/tts"
 	"gitlab.com/tozd/go/errors"
 )
@@ -53,9 +55,23 @@ func main() {
 	router := assistant.NewRouter()
 	cfg := wiring.ConfigFromEnv()
 	// Replies are printed, not spoken; timers set in a replay never go off
-	// (the replay ends first) but would only be logged.
+	// (the replay ends first) but would only be logged. They are kept in a
+	// throwaway database, not Alfred's real one, where they would ring at
+	// the next start.
 	out := app.NewOutput(tts.NewLogSpeaker(logger), nil)
-	if err := wiring.RegisterSkills(router, cfg, out, logger); err != nil {
+	dbDir, err := os.MkdirTemp("", "alfred-replay-")
+	if err != nil {
+		logger.Error("Failed to create a temporary directory", slog.Any("error", err))
+		os.Exit(1)
+	}
+	defer os.RemoveAll(dbDir)
+	db, err := store.Open(context.Background(), filepath.Join(dbDir, "alfred.db"))
+	if err != nil {
+		logger.Error("Failed to open the database", slog.Any("error", err))
+		os.Exit(1)
+	}
+	defer db.Close()
+	if err := wiring.RegisterSkills(context.Background(), router, cfg, out, db, logger); err != nil {
 		logger.Error("Failed to set up skills", slog.Any("error", err))
 		os.Exit(1)
 	}

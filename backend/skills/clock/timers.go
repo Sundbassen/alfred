@@ -3,6 +3,7 @@ package clock
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 )
@@ -150,6 +151,37 @@ func (t *Timers) Stop(context.Context) (bool, error) {
 	return stopped, nil
 }
 
+// list returns copies of the entries, soonest first.
+func (t *Timers) list() []entry {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	entries := make([]entry, 0, len(t.entries))
+	for _, e := range t.entries {
+		entries = append(entries, *e)
+	}
+	slices.SortFunc(entries, func(a, b entry) int { return a.at.Compare(b.at) })
+	return entries
+}
+
+// cancel cancels the entries with the given ids: pending ones never go
+// off, ringing ones stop.
+func (t *Timers) cancel(ids ...int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, id := range ids {
+		e, ok := t.entries[id]
+		if !ok {
+			continue
+		}
+		e.timer.Stop()
+		if e.stopRing != nil {
+			e.stopRing() // fire removes it when the ring loop ends
+			continue
+		}
+		delete(t.entries, id)
+	}
+}
+
 // Close cancels every pending timer and stops every ringing one.
 func (t *Timers) Close() {
 	t.mu.Lock()
@@ -162,6 +194,9 @@ func (t *Timers) Close() {
 		delete(t.entries, id)
 	}
 }
+
+// ringing reports whether the entry is going off.
+func (e *entry) ringing() bool { return e.stopRing != nil }
 
 // ringText is what to say while ringing: nothing for an alarm (the chime
 // says it).

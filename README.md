@@ -120,7 +120,7 @@ One command, phrased three ways. What you say decides which it is:
 | "wake me up at 7 a.m.", "set an alarm for half past 6" | alarm | chime only |
 | "remind me to call my mom in 10 minutes", "remind me at 7 to take my pills" | reminder | chime + "Reminder: call your mom." |
 
-It repeats every 10 seconds, for up to 5 minutes. A clock time without am/pm means the next one: at 22:00, "at 7" is 07:00 tomorrow; at 10:00, it's 19:00. Timers are kept in memory, so they don't survive a restart yet.
+It repeats every 10 seconds, for up to 5 minutes, until you say "hey alfred, stop". "How much time is left?" and "what alarms do I have?" list them; "cancel the timer", "cancel my 7 o'clock alarm", "cancel the reminder to call mom" and "cancel all timers" cancel them. A clock time without am/pm means the next one: at 22:00, "at 7" is 07:00 tomorrow; at 10:00, it's 19:00. Timers are kept in memory, so they don't survive a restart yet.
 
 ## Music (Spotify)
 

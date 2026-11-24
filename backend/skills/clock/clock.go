@@ -69,6 +69,7 @@ func register(r *assistant.Router, timers *Timers, now func() time.Time) {
 			"remind me {message}",
 		},
 	}, h.setTimer)
+	registerManage(r, h)
 }
 
 type handler struct {

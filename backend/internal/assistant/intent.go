@@ -36,6 +36,9 @@ type Spec struct {
 	// speech-to-text toward them. A phrase may contain slots, "play {query}",
 	// filled into the intent's fields tagged `slot:"query"` (see Fill).
 	Phrases []string
+	// Help is an optional short phrase for "what can you do", completing "I
+	// can …", e.g. "play music on Spotify". Set it on a skill's main intent.
+	Help string
 }
 
 // Handler carries out an intent. Handlers registered with Handle receive

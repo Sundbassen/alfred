@@ -86,6 +86,7 @@ func Register(r *assistant.Router, p Player) {
 
 	assistant.Handle(r, assistant.Spec{
 		Description: "Search for music and play it",
+		Help:        "play music on Spotify",
 		Phrases:     []string{"play {query}", "put on {query}", "play some {query}"},
 	}, h.play)
 	assistant.Handle(r, assistant.Spec{

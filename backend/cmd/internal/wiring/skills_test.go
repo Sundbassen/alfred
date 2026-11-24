@@ -192,3 +192,17 @@ func TestPromptCoversEveryIntent(t *testing.T) {
 	}
 	t.Logf("%d words: %s", len(strings.Fields(prompt)), prompt)
 }
+
+func TestHelpAndRepeat(t *testing.T) {
+	r := assistant.NewRouter()
+	if err := RegisterSkills(context.Background(), r, Config{}, testOutput(), testDB(t), slog.New(slog.DiscardHandler)); err != nil {
+		t.Fatal(err)
+	}
+	want := "I can tell you the time and the date and set timers, alarms and reminders."
+	if got := ask(t, r, "What can you do?"); got != want {
+		t.Errorf("help: %q, want %q", got, want)
+	}
+	if got := ask(t, r, "Say that again."); got != want {
+		t.Errorf("repeat: %q, want the help again", got)
+	}
+}

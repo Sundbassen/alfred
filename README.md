@@ -110,6 +110,11 @@ Settings: `ALFRED_INTENT_MODEL_FILE`, `ALFRED_INTENT_MODEL_THREADS` (default 4),
 
 On a laptop CPU, Ministral 3 3B answers in ~2–3 s, so it's a fallback, not a fast path. Model choice is tracked in [#26](https://github.com/Sundbassen/alfred/issues/26).
 
+## Everyday commands
+
+- "what time is it", "what's the date", "what day is it"
+- "never mind" (Alfred stays quiet), "repeat that", "what can you do"
+
 ## Timers, alarms and reminders
 
 One command, phrased three ways. What you say decides which it is:

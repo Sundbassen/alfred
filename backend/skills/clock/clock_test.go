@@ -110,6 +110,15 @@ func TestAskTime(t *testing.T) {
 	}
 }
 
+func TestAskDate(t *testing.T) {
+	r := assistant.NewRouter()
+	register(r, NewTimers(&fakeAnnouncer{}, newFakeStore(), nil), func() time.Time { return time.Date(2026, 11, 24, 9, 5, 0, 0, time.Local) })
+	resp, err := r.Dispatch(context.Background(), recognize(t, r, "What day is it today?"))
+	if want := "It's Tuesday, November 24."; err != nil || resp.Text != want {
+		t.Errorf("%q, %v; want %q", resp.Text, err, want)
+	}
+}
+
 // recognize runs a transcript through the templates and fills the intent.
 func recognize(t *testing.T, r *assistant.Router, transcript string) assistant.Intent {
 	t.Helper()

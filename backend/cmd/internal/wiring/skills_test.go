@@ -295,3 +295,37 @@ func TestSleepTimerPhrasesBeatClockCancel(t *testing.T) {
 		}
 	}
 }
+
+func TestListsEndToEnd(t *testing.T) {
+	r := assistant.NewRouter()
+	logger := slog.New(slog.DiscardHandler)
+	cfg := Config{IntentModel: IntentModelConfig{Server: filepath.Join(t.TempDir(), "llama-server"), ModelFile: "missing.gguf"}}
+	db := testDB(t)
+	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), db, logger); err != nil {
+		t.Fatal(err)
+	}
+	a, err := NewAssistant(r, cfg, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	for _, step := range [][2]string{
+		{"Add milk, eggs and bread to the shopping list.", "You don't have a list called shopping. Should I create it?"},
+		{"Yes.", "Added milk, eggs and bread to your shopping list."},
+		// Timer phrases still win over "add {items} to the {list}".
+		{"Set a timer for 10 minutes.", "Timer set for 10 minutes."},
+		{"Add 5 minutes to the timer.", "Your timer now has 15 minutes left."},
+		{"What's on my shopping list?", "Your shopping list has 3 items: milk, eggs and bread."},
+		{"Delete the shopping list.", "Delete your shopping list and its 3 items?"},
+		{"Never mind.", ""},
+		{"What lists do I have?", "You have one list: shopping."},
+	} {
+		reply, err := a.Respond(context.Background(), step[0])
+		if err != nil {
+			t.Fatalf("%q: %v", step[0], err)
+		}
+		if reply.Text != step[1] {
+			t.Errorf("%q:\n got %q\nwant %q", step[0], reply.Text, step[1])
+		}
+	}
+}

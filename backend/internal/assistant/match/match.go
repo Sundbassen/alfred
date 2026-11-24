@@ -101,8 +101,9 @@ func literalWords(elems []element) int {
 // matchTemplate matches the whole transcript (normalized tokens) against a
 // template. Each slot captures at least one token; when a slot is followed
 // by literal words it takes the longest capture, so "play {query} in the
-// {speaker}" gives the query everything up to the last "in the".
-func matchTemplate(elems []element, tokens []string) (map[string]string, bool) {
+// {speaker}" gives the query everything up to the last "in the". Slot
+// values keep the commas that followed their tokens.
+func matchTemplate(elems []element, tokens []string, commaAfter []bool) (map[string]string, bool) {
 	slots := make(map[string]string)
 	var match func(e, t int) bool
 	match = func(e, t int) bool {
@@ -123,7 +124,7 @@ func matchTemplate(elems []element, tokens []string) (map[string]string, bool) {
 		}
 		for end := len(tokens); end > t; end-- {
 			if match(e+1, end) {
-				slots[el.slot] = strings.Join(tokens[t:end], " ")
+				slots[el.slot] = slotText(tokens[t:end], commaAfter[t:end])
 				return true
 			}
 		}
@@ -133,6 +134,22 @@ func matchTemplate(elems []element, tokens []string) (map[string]string, bool) {
 		return nil, false
 	}
 	return slots, true
+}
+
+// slotText joins a slot's tokens, keeping the commas between them ("milk,
+// eggs and bread"), so a handler can split a list.
+func slotText(tokens []string, commaAfter []bool) string {
+	var b strings.Builder
+	for i, t := range tokens {
+		if i > 0 {
+			if commaAfter[i-1] {
+				b.WriteString(",")
+			}
+			b.WriteString(" ")
+		}
+		b.WriteString(t)
+	}
+	return b.String()
 }
 
 // New builds a matcher over the phrases of the given intents (from
@@ -296,8 +313,8 @@ var questionWords = map[string]bool{
 // or a *NoMatchError if no phrase scores at least the threshold. It is
 // pure computation; ctx is for the recognizer interface.
 func (m *Matcher) Recognize(_ context.Context, transcript string) (assistant.Recognition, error) {
-	normalized := Normalize(transcript)
-	tokens := strings.Fields(normalized)
+	tokens, commaAfter := tokenize(transcript)
+	normalized := strings.Join(tokens, " ")
 	if len(tokens) == 0 {
 		return assistant.Recognition{}, errors.WithStack(&NoMatchError{})
 	}
@@ -310,7 +327,7 @@ func (m *Matcher) Recognize(_ context.Context, transcript string) (assistant.Rec
 	bestLiterals := -1
 	for _, p := range m.phrases {
 		if p.template != nil {
-			slots, ok := matchTemplate(p.template, tokens)
+			slots, ok := matchTemplate(p.template, tokens, commaAfter)
 			if literals := literalWords(p.template); ok && literals > bestLiterals {
 				best = assistant.Recognition{Intent: p.intent, Phrase: p.text, Score: 1, Slots: slots, By: By}
 				bestLiterals = literals
@@ -359,13 +376,20 @@ var ignored = map[string]bool{
 // punctuation and drops filler and wake words, e.g. " What's the time,
 // please?" becomes "what is the time".
 func Normalize(text string) string {
+	tokens, _ := tokenize(text)
+	return strings.Join(tokens, " ")
+}
+
+// tokenize is Normalize as tokens, plus which tokens a comma followed in
+// the text ("milk, eggs and bread"), so template slots can keep them.
+func tokenize(text string) (tokens []string, commaAfter []bool) {
 	// Whisper may emit a typographic apostrophe.
 	text = strings.ReplaceAll(strings.ToLower(text), "’", "'")
 	// Whisper writes "five percent" as "5%".
 	text = strings.ReplaceAll(text, "%", " percent")
 
-	var words []string
 	for _, word := range strings.Fields(text) {
+		comma := strings.HasSuffix(strings.TrimRight(word, ".!?"), ",") || strings.HasSuffix(word, ";")
 		word = strings.TrimFunc(word, func(r rune) bool {
 			return r != '\'' && !unicode.IsLetter(r) && !unicode.IsDigit(r)
 		})
@@ -381,13 +405,19 @@ func Normalize(text string) string {
 			}
 			return r
 		}, word)
+		added := false
 		for _, w := range strings.Fields(word) {
 			if !ignored[w] {
-				words = append(words, w)
+				tokens = append(tokens, w)
+				commaAfter = append(commaAfter, false)
+				added = true
 			}
 		}
+		if comma && added {
+			commaAfter[len(commaAfter)-1] = true
+		}
 	}
-	return strings.Join(words, " ")
+	return tokens, commaAfter
 }
 
 // dice is the Sørensen–Dice coefficient of two token multisets:

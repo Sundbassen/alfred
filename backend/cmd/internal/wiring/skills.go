@@ -24,6 +24,8 @@ import (
 	"github.com/sundbassen/alfred/skills/clock"
 	"github.com/sundbassen/alfred/skills/clock/clockstore"
 	"github.com/sundbassen/alfred/skills/conversation"
+	"github.com/sundbassen/alfred/skills/lists"
+	"github.com/sundbassen/alfred/skills/lists/listsstore"
 	"github.com/sundbassen/alfred/skills/music"
 	"github.com/sundbassen/alfred/skills/music/musicservice"
 	"github.com/sundbassen/alfred/skills/stop"
@@ -100,6 +102,9 @@ func RegisterSkills(ctx context.Context, r *assistant.Router, cfg Config, out *a
 	clock.Register(r, timers)
 
 	registerVolume(r, cfg.Volume, logger)
+
+	// Lists live in the local database until the cloud backend (#39).
+	lists.Register(r, listsstore.New(db))
 
 	player, err := registerMusic(r, cfg.Spotify, logger)
 	if err != nil {

@@ -241,3 +241,17 @@ func TestExactPhraseBeatsTemplate(t *testing.T) {
 		t.Errorf("Recognize = %+v, %v; want the exact phrase radio", res, err)
 	}
 }
+
+func TestSlotsKeepCommas(t *testing.T) {
+	m := New(routes(route("add", "add {items} to the {list}")))
+	rec, err := m.Recognize(context.Background(), "Add milk, eggs, and bread to the shopping list, please.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Slots["items"] != "milk, eggs, and bread" || rec.Slots["list"] != "shopping list" {
+		t.Errorf("slots = %q", rec.Slots)
+	}
+	if got := Normalize("Milk, eggs, and bread."); got != "milk eggs and bread" {
+		t.Errorf("Normalize drops commas: %q", got)
+	}
+}

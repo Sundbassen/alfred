@@ -16,10 +16,12 @@ import (
 
 var routes = []assistant.Route{
 	{Name: "time", Spec: assistant.Spec{Description: "Tell the current local time", Phrases: []string{"what time is it"}}},
-	{Name: "music_play", Slots: []string{"query"},
+	{Name: "music_play", Slots: []assistant.Slot{{Name: "query"}},
 		Spec: assistant.Spec{Description: "Search for music and play it", Phrases: []string{"play {query}", "put on {query}"}}},
-	{Name: "music_mix", Slots: []string{"artists"},
+	{Name: "music_mix", Slots: []assistant.Slot{{Name: "artists"}},
 		Spec: assistant.Spec{Description: "Play a shuffled mix of the named artists", Phrases: []string{"play a radio with {artists}"}}},
+	{Name: "timer_set", Slots: []assistant.Slot{{Name: "message", Optional: true}, {Name: "when"}},
+		Spec: assistant.Spec{Description: "Set a timer, alarm or reminder", Phrases: []string{"set a timer for {when}", "remind me to {message} in {when}"}}},
 }
 
 // fakeModel returns a scripted answer and records requests.
@@ -60,6 +62,18 @@ func TestRecognize(t *testing.T) {
 	if err != nil || rec.Intent != "time" || rec.Slots != nil {
 		t.Errorf("time: rec = %+v, err = %v", rec, err)
 	}
+
+	// An optional slot may be left out, or filled.
+	rec, err = newRecognizer(&fakeModel{answer: `{"intent":"timer_set","slots":{"when":"10 minutes","message":""}}`}).
+		Recognize(context.Background(), "Start a timer, 10 minutes.")
+	if err != nil || rec.Intent != "timer_set" || len(rec.Slots) != 1 || rec.Slots["when"] != "10 minutes" {
+		t.Errorf("optional slot left out: rec = %+v, err = %v", rec, err)
+	}
+	rec, err = newRecognizer(&fakeModel{answer: `{"intent":"timer_set","slots":{"when":"10 minutes","message":"call mom"}}`}).
+		Recognize(context.Background(), "In 10 minutes, tell me to call mom.")
+	if err != nil || rec.Slots["message"] != "call mom" || rec.Slots["when"] != "10 minutes" {
+		t.Errorf("optional slot filled: rec = %+v, err = %v", rec, err)
+	}
 }
 
 func TestRejections(t *testing.T) {
@@ -68,6 +82,7 @@ func TestRejections(t *testing.T) {
 		"unknown intent":          `{"intent":"weather","slots":{}}`,
 		"slot of another intent":  `{"intent":"time","slots":{"query":"queen"}}`,
 		"missing slot":            `{"intent":"music_play","slots":{}}`,
+		"missing required slot":   `{"intent":"timer_set","slots":{"message":"queen"}}`,
 		"hallucinated slot value": `{"intent":"music_play","slots":{"query":"bohemian rhapsody"}}`,
 		"partial word slot value": `{"intent":"music_play","slots":{"query":"que"}}`,
 		"not json":                `play queen`,
@@ -107,7 +122,7 @@ func TestPromptAndSchema(t *testing.T) {
 	if m.reqs[1].User != "second" {
 		t.Errorf("user message = %q, want the transcript", m.reqs[1].User)
 	}
-	for _, want := range []string{"music_play: Search for music and play it.", "Slots: query.", `"play {query}"`, `"none"`} {
+	for _, want := range []string{"music_play: Search for music and play it.", "Slots: query.", "Slots: message (optional), when.", `"play {query}"`, `"none"`} {
 		if !strings.Contains(m.reqs[0].System, want) {
 			t.Errorf("system prompt lacks %q:\n%s", want, m.reqs[0].System)
 		}

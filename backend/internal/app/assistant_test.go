@@ -129,7 +129,7 @@ func TestTiers(t *testing.T) {
 func TestRouteSlots(t *testing.T) {
 	for _, rt := range newTestRouter(nil).Intents() {
 		want := map[string]int{"greet": 0, "play": 1}[rt.Name]
-		if len(rt.Slots) != want || (want == 1 && rt.Slots[0] != "query") {
+		if len(rt.Slots) != want || (want == 1 && rt.Slots[0] != (assistant.Slot{Name: "query"})) {
 			t.Errorf("%s slots = %v", rt.Name, rt.Slots)
 		}
 	}

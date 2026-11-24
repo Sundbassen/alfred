@@ -172,7 +172,7 @@ func (r *Recognizer) validate(data []byte, normalized string) (assistant.Recogni
 	}
 
 	// The schema allows every intent's slots; keep the non-empty ones and
-	// require exactly this intent's.
+	// require this intent's required ones (optional ones may be missing).
 	slots := make(map[string]string)
 	for name, value := range ans.Slots {
 		if value = match.Normalize(value); value != "" {
@@ -180,7 +180,7 @@ func (r *Recognizer) validate(data []byte, normalized string) (assistant.Recogni
 		}
 	}
 	for name, value := range slots {
-		if !slices.Contains(rt.Slots, name) {
+		if !slices.ContainsFunc(rt.Slots, func(s assistant.Slot) bool { return s.Name == name }) {
 			return assistant.Recognition{}, errors.WithMessagef(fault.ErrNotFound, "intent %q has no slot %q", rt.Name, name)
 		}
 		if !containsWords(normalized, value) {
@@ -188,9 +188,9 @@ func (r *Recognizer) validate(data []byte, normalized string) (assistant.Recogni
 				"slot %s=%q is not in the transcript", name, value)
 		}
 	}
-	for _, name := range rt.Slots {
-		if _, ok := slots[name]; !ok {
-			return assistant.Recognition{}, errors.WithMessagef(fault.ErrNotFound, "intent %q is missing slot %q", rt.Name, name)
+	for _, s := range rt.Slots {
+		if _, ok := slots[s.Name]; !ok && !s.Optional {
+			return assistant.Recognition{}, errors.WithMessagef(fault.ErrNotFound, "intent %q is missing slot %q", rt.Name, s.Name)
 		}
 	}
 	if len(slots) == 0 {
@@ -225,7 +225,14 @@ func systemPrompt(routes []assistant.Route) string {
 	for _, rt := range routes {
 		fmt.Fprintf(&b, "- %s: %s.", rt.Name, strings.TrimSuffix(rt.Spec.Description, "."))
 		if len(rt.Slots) > 0 {
-			fmt.Fprintf(&b, " Slots: %s.", strings.Join(rt.Slots, ", "))
+			names := make([]string, len(rt.Slots))
+			for i, s := range rt.Slots {
+				names[i] = s.Name
+				if s.Optional {
+					names[i] += " (optional)"
+				}
+			}
+			fmt.Fprintf(&b, " Slots: %s.", strings.Join(names, ", "))
 		}
 		if examples := rt.Spec.Phrases; len(examples) > 0 {
 			if len(examples) > maxExamples {
@@ -246,7 +253,7 @@ func answerSchema(routes []assistant.Route) *Schema {
 	for _, rt := range routes {
 		names = append(names, rt.Name)
 		for _, s := range rt.Slots {
-			slots[s] = &Schema{Type: "string"}
+			slots[s.Name] = &Schema{Type: "string"}
 		}
 	}
 	names = append(names, noIntent)

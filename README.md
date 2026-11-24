@@ -33,6 +33,7 @@ Unrecognized requests get "Sorry, I didn't catch that." A cloud LLM fallback for
 - Go ≥ 1.25, a C/C++ toolchain, cmake, git, curl
 - `espeak-ng` for spoken replies (or run with `-tts none`)
 - `paplay` (PulseAudio or PipeWire's pulse utilities; `libpulse` on Arch) for the timer chime; without it timers only speak
+- `wpctl` (WirePlumber) for the volume commands; without it they're left out
 - `pw-play` (PipeWire) for the review tool
 - Python 3.11 and, ideally, an NVIDIA GPU for training the wake word model
 
@@ -114,6 +115,7 @@ On a laptop CPU, Ministral 3 3B answers in ~2–3 s, so it's a fallback, not a f
 
 - "what time is it", "what's the date", "what day is it"
 - "never mind" (Alfred stays quiet), "repeat that", "what can you do"
+- "volume up", "quieter", "set the volume to 4", "mute", "unmute": the speaker's output (PipeWire's default sink, through `wpctl`), so Alfred's voice and the music together
 
 ## Timers, alarms and reminders
 

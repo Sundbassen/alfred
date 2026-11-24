@@ -26,6 +26,8 @@ import (
 	"github.com/sundbassen/alfred/skills/music"
 	"github.com/sundbassen/alfred/skills/music/musicservice"
 	"github.com/sundbassen/alfred/skills/stop"
+	"github.com/sundbassen/alfred/skills/volume"
+	"github.com/sundbassen/alfred/skills/volume/volumeservice"
 )
 
 // Config holds the skill providers' and recognizers' settings.
@@ -92,6 +94,8 @@ func RegisterSkills(ctx context.Context, r *assistant.Router, cfg Config, out *a
 	}
 	clock.Register(r, timers)
 
+	registerVolume(r, logger)
+
 	player, err := registerMusic(r, cfg.Spotify, logger)
 	if err != nil {
 		return err
@@ -107,6 +111,17 @@ func RegisterSkills(ctx context.Context, r *assistant.Router, cfg Config, out *a
 	}
 	stop.Register(r, stoppers...)
 	return nil
+}
+
+// registerVolume registers the volume skill on the default PipeWire output,
+// unless wpctl is missing.
+func registerVolume(r *assistant.Router, logger *slog.Logger) {
+	mixer, err := volumeservice.NewWpctl()
+	if err != nil {
+		logger.Info("Volume skill disabled: wpctl not found (install WirePlumber)")
+		return
+	}
+	volume.Register(r, mixer)
 }
 
 // registerMusic registers the music skill with Spotify as its provider,

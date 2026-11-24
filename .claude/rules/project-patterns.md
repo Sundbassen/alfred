@@ -26,7 +26,7 @@ internal/  may import only internal/       (plus the standard library and third-
 | `internal/assistant/llm/` | The model-agnostic language-model recognizer: prompt and JSON schema from the intents, validation of the answer. Models plug in through its `Model` interface. Further recognizers (e.g. the Claude fallback) go alongside and produce the same `assistant.Recognition` |
 | `internal/llm/<model>/` | Language model implementations of `llm.Model` (e.g. `ministral`), plus `internal/llm/llamaserver` (runs llama.cpp's server as a child process) |
 | `internal/app/` | Wires the voice framework into a listener, plus `Assistant` (recognize → dispatch). It never imports skills |
-| `internal/voice/` | The voice framework: `listener`, `wakeword`, `stt`, `vad` (+ `silero`), `mic`, `tts`, `recorder`. Its contracts are in `voice.go` |
+| `internal/voice/` | The voice framework: `listener`, `wakeword`, `stt`, `vad` (+ `silero`), `mic`, `tts`, `sound` (the chime), `recorder`. Its contracts are in `voice.go` |
 | `internal/platform/` | Shared helpers: `fault` (error categories, see `go-errors.md`), `pcm`, `wav`, `onnxrt`, `logging`, `wakeclip` |
 | `internal/<client>/` | Infrastructure shared by several skills (e.g. `internal/homeassistant`, an API client used by lights and climate). Each skill's service package adapts it to that skill's interface |
 

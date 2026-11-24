@@ -15,6 +15,7 @@ import (
 	"github.com/sundbassen/alfred/internal/platform/fault"
 	"github.com/sundbassen/alfred/internal/platform/logging"
 	"github.com/sundbassen/alfred/internal/voice/mic"
+	"github.com/sundbassen/alfred/internal/voice/sound"
 	"github.com/sundbassen/alfred/internal/voice/tts"
 	"github.com/sundbassen/alfred/internal/voice/tts/espeak"
 	"gitlab.com/tozd/go/errors"
@@ -39,6 +40,12 @@ func main() {
 		logger.Error("Failed to create speaker", slog.Any("error", err))
 		os.Exit(1)
 	}
+	player, err := sound.New()
+	if err != nil {
+		logger.Warn("No chime for timers (install paplay)", slog.String("error", err.Error()))
+	}
+	// Replies and timers share one output, so they never talk over each other.
+	out := app.NewOutput(speaker, player)
 
 	// Create microphone service with default config
 	config := mic.DefaultConfig()
@@ -129,10 +136,10 @@ func main() {
 				logger.Info("No command matched", slog.String("text", transcript.Text),
 					slog.String("best_intent", noMatch.Best.Intent),
 					slog.Float64("best_score", noMatch.Best.Score))
-				say(ctx, speaker, logger, app.NoMatchText)
+				say(ctx, out, logger, app.NoMatchText)
 			case err != nil:
 				logger.Error("Command failed", slog.Any("error", err))
-				say(ctx, speaker, logger, assistant.SpokenText(err))
+				say(ctx, out, logger, assistant.SpokenText(err))
 			default:
 				logger.Info("🗣️ RESPONSE",
 					slog.String("intent", reply.Recognition.Intent),
@@ -140,7 +147,7 @@ func main() {
 					slog.String("phrase", reply.Recognition.Phrase),
 					slog.Float64("score", reply.Recognition.Score),
 					slog.String("text", reply.Text))
-				say(ctx, speaker, logger, reply.Text)
+				say(ctx, out, logger, reply.Text)
 			}
 		}
 		logger.Info("Transcript channel closed")
@@ -174,8 +181,8 @@ func newSpeaker(engine string, logger *slog.Logger) (tts.Speaker, error) {
 	}
 }
 
-func say(ctx context.Context, speaker tts.Speaker, logger *slog.Logger, text string) {
-	if err := speaker.Speak(ctx, text); err != nil && ctx.Err() == nil {
+func say(ctx context.Context, out *app.Output, logger *slog.Logger, text string) {
+	if err := out.Speak(ctx, text); err != nil && ctx.Err() == nil {
 		logger.Error("Failed to speak response", slog.Any("error", err))
 	}
 }

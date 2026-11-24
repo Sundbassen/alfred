@@ -22,8 +22,8 @@ func TestNormalize(t *testing.T) {
 		{"...", ""},
 	}
 	for _, tt := range tests {
-		if got := normalize(tt.in); got != tt.want {
-			t.Errorf("normalize(%q) = %q, want %q", tt.in, got, tt.want)
+		if got := Normalize(tt.in); got != tt.want {
+			t.Errorf("Normalize(%q) = %q, want %q", tt.in, got, tt.want)
 		}
 	}
 }

@@ -74,7 +74,7 @@ func compileTemplate(text string) []element {
 	}
 	var elems []element
 	literal := func(s string) {
-		if words := strings.Fields(normalize(s)); len(words) > 0 {
+		if words := strings.Fields(Normalize(s)); len(words) > 0 {
 			elems = append(elems, element{words: words})
 		}
 	}
@@ -140,7 +140,7 @@ func New(routes []assistant.Route) *Matcher {
 	m := &Matcher{Threshold: DefaultThreshold}
 	for _, rt := range routes {
 		for _, text := range rt.Spec.Phrases {
-			normalized := normalize(slotPattern.ReplaceAllString(text, ""))
+			normalized := Normalize(slotPattern.ReplaceAllString(text, ""))
 			m.phrases = append(m.phrases, phrase{
 				intent:     rt.Name,
 				text:       text,
@@ -201,7 +201,7 @@ var questionWords = map[string]bool{
 // or a *NoMatchError if no phrase scores at least the threshold. It is
 // pure computation; ctx is for the recognizer interface.
 func (m *Matcher) Recognize(_ context.Context, transcript string) (assistant.Recognition, error) {
-	normalized := normalize(transcript)
+	normalized := Normalize(transcript)
 	tokens := strings.Fields(normalized)
 	if len(tokens) == 0 {
 		return assistant.Recognition{}, errors.WithStack(&NoMatchError{})
@@ -260,10 +260,10 @@ var ignored = map[string]bool{
 	"alfred": true,
 }
 
-// normalize lowercases the text, expands common contractions, strips
+// Normalize lowercases the text, expands common contractions, strips
 // punctuation and drops filler and wake words, e.g. " What's the time,
 // please?" becomes "what is the time".
-func normalize(text string) string {
+func Normalize(text string) string {
 	// Whisper may emit a typographic apostrophe.
 	text = strings.ReplaceAll(strings.ToLower(text), "’", "'")
 

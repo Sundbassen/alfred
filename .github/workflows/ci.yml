@@ -21,7 +21,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: backend/go.mod
-          cache-dependency-path: backend/go.sum
+          cache-dependency-path: |
+            backend/go.sum
+            backend/tools.sum
 
       - name: Native dependency versions
         id: deps
@@ -47,6 +49,9 @@ jobs:
         run: |
           unformatted="$(gofmt -l $(go list -f '{{.Dir}}' ./...))"
           if [ -n "$unformatted" ]; then echo "$unformatted"; exit 1; fi
+
+      # Generated query code matches queries.sql and the migrations
+      - run: make sqlc-diff
 
       - run: make vet
 

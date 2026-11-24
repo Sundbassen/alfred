@@ -1,4 +1,4 @@
-.PHONY: build all install clean prereqs run review replay wakestats test vet layers spotify-login
+.PHONY: build all install clean prereqs run review replay wakestats test vet layers spotify-login sqlc sqlc-diff
 
 # Native dependencies live in a project-local, gitignored directory (not
 # /tmp, which is wiped on reboot). Override with make install DEPS_DIR=...
@@ -142,6 +142,18 @@ test:
 
 vet:
 	go vet ./...
+
+# Generate the database query code (internal/store/storedb) from
+# internal/store/queries and the schema in internal/store/migrations; see
+# sqlc.yaml. sqlc is pinned as a tool in tools.mod (no global install; the
+# first run builds it, ~20 s). sqlc-diff fails if the generated code is out
+# of date (CI).
+SQLC = go tool -modfile=tools.mod sqlc
+sqlc:
+	$(SQLC) generate
+
+sqlc-diff:
+	$(SQLC) diff
 
 # Enforce the layer rule (.claude/rules/project-patterns.md): cmd may import
 # anything, skills/ may import internal/, internal/ may import only

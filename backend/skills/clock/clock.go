@@ -36,6 +36,42 @@ type SetTimer struct {
 
 func (SetTimer) IntentName() string { return "timer_set" }
 
+// Kind is what the user set, derived from what they said.
+type Kind int
+
+const (
+	// KindTimer is a duration without a message: "set a timer for 10 minutes".
+	KindTimer Kind = iota
+	// KindAlarm is a clock time without a message: "wake me up at 7".
+	KindAlarm
+	// KindReminder has a message: "remind me to call mom in 10 minutes".
+	KindReminder
+)
+
+func (k Kind) String() string {
+	switch k {
+	case KindAlarm:
+		return "alarm"
+	case KindReminder:
+		return "reminder"
+	default:
+		return "timer"
+	}
+}
+
+// Timer is a timer, alarm or reminder as it is stored.
+type Timer struct {
+	ID   int64
+	Kind Kind
+	At   time.Time
+	// Duration is what a timer was set for ("10 minutes"); 0 for a clock
+	// time.
+	Duration time.Duration
+	// Message is a reminder's message, in the second person ("call your
+	// mom"); empty otherwise.
+	Message string
+}
+
 // Register adds the clock's intents to r; timers keeps the timers, alarms
 // and reminders.
 func Register(r *assistant.Router, timers *Timers) {

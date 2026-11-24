@@ -1,0 +1,2 @@
+# sqlc output: collapsed in GitHub diffs; regenerate with make sqlc
+backend/internal/store/storedb/** linguist-generated=true

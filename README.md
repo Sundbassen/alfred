@@ -2,7 +2,7 @@
 
 A local-first voice assistant written in Go. Say "hey alfred, what time is it" and Alfred answers out loud. Wake word detection, speech-to-text and command matching all run on your own machine.
 
-> **Status: early.** One command so far ("what time is it"), Linux only, and you train your own wake word model (see [Wake word model](#wake-word-model)). The roadmap lives in the [issues](https://github.com/Sundbassen/alfred/issues), starting with [#2](https://github.com/Sundbassen/alfred/issues/2).
+> **Status: early.** A few commands so far (the time, timers/alarms/reminders, Spotify), Linux only, and you train your own wake word model (see [Wake word model](#wake-word-model)). The roadmap lives in the [issues](https://github.com/Sundbassen/alfred/issues), starting with [#2](https://github.com/Sundbassen/alfred/issues/2).
 
 ## How it works
 
@@ -109,6 +109,18 @@ Alfred starts `llama-server` as a child process, loads and warms the model in th
 Settings: `ALFRED_INTENT_MODEL_FILE`, `ALFRED_INTENT_MODEL_THREADS` (default 4), and `ALFRED_INTENT_MODEL_TIMEOUT` (default 3s; slower answers fall through).
 
 On a laptop CPU, Ministral 3 3B answers in ~2–3 s, so it's a fallback, not a fast path. Model choice is tracked in [#26](https://github.com/Sundbassen/alfred/issues/26).
+
+## Timers, alarms and reminders
+
+One command, phrased three ways. What you say decides which it is:
+
+| Say | It is | When it goes off |
+|---|---|---|
+| "set a timer for 10 minutes", "set a 5 minute timer" | timer | chime + "Your timer for 10 minutes is done." |
+| "wake me up at 7 a.m.", "set an alarm for half past 6" | alarm | chime only |
+| "remind me to call my mom in 10 minutes", "remind me at 7 to take my pills" | reminder | chime + "Reminder: call your mom." |
+
+It repeats every 10 seconds, for up to 5 minutes. A clock time without am/pm means the next one: at 22:00, "at 7" is 07:00 tomorrow; at 10:00, it's 19:00. Timers are kept in memory, so they don't survive a restart yet.
 
 ## Music (Spotify)
 

@@ -9,14 +9,16 @@ import (
 
 	"golang.org/x/oauth2"
 
+	"github.com/sundbassen/alfred/internal/app"
 	"github.com/sundbassen/alfred/internal/assistant"
+	"github.com/sundbassen/alfred/internal/voice/tts"
 	"github.com/sundbassen/alfred/skills/music/musicservice"
 )
 
 func intents(t *testing.T, cfg Config) map[string]bool {
 	t.Helper()
 	r := assistant.NewRouter()
-	if err := RegisterSkills(r, cfg, slog.New(slog.NewTextHandler(io.Discard, nil))); err != nil {
+	if err := RegisterSkills(r, cfg, testOutput(), slog.New(slog.NewTextHandler(io.Discard, nil))); err != nil {
 		t.Fatal(err)
 	}
 	names := make(map[string]bool)
@@ -51,7 +53,7 @@ func TestAssistantWithoutModelUsesTemplates(t *testing.T) {
 	r := assistant.NewRouter()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cfg := Config{IntentModel: IntentModelConfig{Server: filepath.Join(t.TempDir(), "llama-server"), ModelFile: "missing.gguf"}}
-	if err := RegisterSkills(r, cfg, logger); err != nil {
+	if err := RegisterSkills(r, cfg, testOutput(), logger); err != nil {
 		t.Fatal(err)
 	}
 	a, err := NewAssistant(r, cfg, logger)
@@ -69,4 +71,8 @@ func TestAssistantWithoutModelUsesTemplates(t *testing.T) {
 	if err != nil || reply.Recognition.By != "templates" {
 		t.Errorf("Respond = %+v, %v; want a templates match", reply, err)
 	}
+}
+
+func testOutput() *app.Output {
+	return app.NewOutput(tts.NewLogSpeaker(slog.New(slog.DiscardHandler)), nil)
 }

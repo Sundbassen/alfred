@@ -38,7 +38,39 @@ type ListTimers struct {
 
 func (ListTimers) IntentName() string { return "timer_list" }
 
+// Snooze is "snooze" (9 minutes) or "snooze for 5 minutes": a ringing
+// timer, alarm or reminder goes off again later.
+type Snooze struct {
+	When string `slot:"when,optional"`
+}
+
+func (Snooze) IntentName() string { return "timer_snooze" }
+
+// ExtendTimer is "add 5 minutes to the timer".
+type ExtendTimer struct {
+	Amount string `slot:"amount"`
+	What   string `slot:"what,optional"`
+}
+
+func (ExtendTimer) IntentName() string { return "timer_extend" }
+
+// snoozeFor is how long "snooze" waits, like most alarm clocks.
+const snoozeFor = 9 * time.Minute
+
 func registerManage(r *assistant.Router, h *handler) {
+	assistant.Handle(r, assistant.Spec{
+		Description: "Snooze a ringing alarm, timer or reminder",
+		Phrases:     []string{"snooze", "snooze it", "snooze the alarm", "snooze for {when}", "snooze the alarm for {when}"},
+	}, h.snooze)
+	assistant.Handle(r, assistant.Spec{
+		Description: "Add time to a timer",
+		// The phrases end in "timer", so they win over the lists' "add
+		// {items} to the {list}".
+		Phrases: []string{
+			"add {amount} to the timer", "add {amount} to my timer",
+			"add {amount} to the {what} timer", "add {amount} to my {what} timer",
+		},
+	}, h.extendTimer)
 	assistant.Handle(r, assistant.Spec{
 		Description: "Cancel a timer, alarm or reminder, or all of them",
 		Phrases: []string{
@@ -246,4 +278,66 @@ func (e entry) status(now time.Time) string {
 	default:
 		return name + " is at " + spoken.FormatClock(e.At, now) + "."
 	}
+}
+
+func (h *handler) snooze(ctx context.Context, i Snooze) (assistant.Response, error) {
+	d := snoozeFor
+	if i.When != "" {
+		w, err := spoken.ParseWhen(i.When, h.now())
+		if err != nil {
+			return assistant.Response{}, err
+		}
+		d = w.At.Sub(h.now())
+	}
+	n, err := h.timers.snooze(ctx, d)
+	if err != nil {
+		return assistant.Response{}, err
+	}
+	if n == 0 {
+		return assistant.Response{Text: "Nothing is ringing."}, nil
+	}
+	return assistant.Response{Text: "Snoozed for " + spoken.FormatDuration(d) + "."}, nil
+}
+
+func (h *handler) extendTimer(ctx context.Context, i ExtendTimer) (assistant.Response, error) {
+	now := h.now()
+	var amount []string
+	for _, w := range strings.Fields(i.Amount) {
+		if w != "more" && w != "another" && w != "extra" {
+			amount = append(amount, w)
+		}
+	}
+	w, err := spoken.ParseWhen(strings.Join(amount, " "), now)
+	if err != nil || w.Duration <= 0 {
+		return assistant.Response{}, &assistant.SpokenError{
+			Text: "Sorry, how much time should I add?",
+			Err:  errors.WithMessagef(fault.ErrInvalidValue, "amount %q", i.Amount),
+		}
+	}
+	sel := parseSelection(i.What)
+	sel.kinds = []Kind{KindTimer}
+	var matched []entry
+	for _, e := range h.timers.list() {
+		if sel.matches(e, now) {
+			matched = append(matched, e)
+		}
+	}
+	switch {
+	case len(matched) == 0:
+		return assistant.Response{Text: "You have no timers."}, nil
+	case len(matched) > 1:
+		names := make([]string, len(matched))
+		for i, e := range matched {
+			names[i] = e.name(now)
+		}
+		return assistant.Response{
+			Text: fmt.Sprintf("You have %d: %s. Which one?", len(matched), spoken.JoinAnd(names)),
+			Ask:  &assistant.Question{Intent: ExtendTimer{Amount: i.Amount}, Slot: "what"},
+		}, nil
+	}
+	e, err := h.timers.extend(ctx, matched[0].ID, w.Duration)
+	if err != nil {
+		return assistant.Response{}, err
+	}
+	return assistant.Response{Text: "Your timer now has " + spoken.FormatRemaining(e.At.Sub(now)) + " left."}, nil
 }

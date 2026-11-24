@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"gitlab.com/tozd/go/errors"
 
@@ -36,6 +38,21 @@ func (f *fakePlayer) Resume(context.Context, Target) error   { return f.record("
 func (f *fakePlayer) Next(context.Context, Target) error     { return f.record("next") }
 func (f *fakePlayer) Previous(context.Context, Target) error { return f.record("previous") }
 
+func (f *fakePlayer) NowPlaying(context.Context, Target) (Item, error) {
+	f.calls = append(f.calls, "now")
+	if f.item == (Item{}) && f.err == nil {
+		return Item{}, errors.WithMessage(fault.ErrNotFound, "nothing")
+	}
+	return f.item, f.err
+}
+
+func (f *fakePlayer) SetShuffle(_ context.Context, _ Target, on bool) error {
+	if on {
+		return f.record("shuffle on")
+	}
+	return f.record("shuffle off")
+}
+
 func (f *fakePlayer) record(call string) error {
 	f.calls = append(f.calls, call)
 	return f.err
@@ -45,7 +62,7 @@ func (f *fakePlayer) record(call string) error {
 func respond(t *testing.T, p *fakePlayer, transcript string) (*app.Reply, error) {
 	t.Helper()
 	r := assistant.NewRouter()
-	Register(r, p)
+	Register(r, p, nil)
 	return app.NewAssistant(r, match.New(r.Intents())).Respond(context.Background(), transcript)
 }
 
@@ -66,6 +83,11 @@ func TestTranscriptsReachThePlayer(t *testing.T) {
 		{"play", fakePlayer{}, "resume", "Resuming."},
 		{"next song", fakePlayer{}, "next", "Skipping."},
 		{"go back", fakePlayer{}, "previous", "Going back."},
+		{"What's playing?", fakePlayer{item: Item{Title: "One More Time", Artist: "Daft Punk"}}, "now",
+			"This is One More Time by Daft Punk."},
+		{"What song is this?", fakePlayer{}, "now", "Nothing is playing."},
+		{"Shuffle.", fakePlayer{}, "shuffle on", "Shuffle on."},
+		{"Turn off shuffle.", fakePlayer{}, "shuffle off", "Shuffle off."},
 	}
 	for _, tt := range tests {
 		p := tt.player
@@ -122,4 +144,31 @@ func TestJoinNames(t *testing.T) {
 			t.Errorf("joinNames(%v) = %q, want %q", names, got, want)
 		}
 	}
+}
+
+func TestSleepTimer(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		p := &fakePlayer{}
+		r := assistant.NewRouter()
+		Register(r, p, nil)
+		a := app.NewAssistant(r, match.New(r.Intents()))
+		reply, err := a.Respond(context.Background(), "Stop the music in 30 minutes.")
+		if err != nil || reply.Text != "OK, I'll stop the music in 30 minutes." {
+			t.Fatalf("%+v, %v", reply, err)
+		}
+		// A new sleep timer replaces the pending one.
+		if _, err := a.Respond(context.Background(), "Stop the music in 45 minutes."); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(30 * time.Minute)
+		synctest.Wait()
+		if len(p.calls) != 0 {
+			t.Fatalf("after 30 minutes: %q, want nothing (replaced)", p.calls)
+		}
+		time.Sleep(15 * time.Minute)
+		synctest.Wait()
+		if strings.Join(p.calls, ",") != "pause" {
+			t.Errorf("after 45 minutes: %q, want pause", p.calls)
+		}
+	})
 }

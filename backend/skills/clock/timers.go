@@ -9,6 +9,7 @@ import (
 
 	"gitlab.com/tozd/go/errors"
 
+	"github.com/sundbassen/alfred/internal/platform/fault"
 	"github.com/sundbassen/alfred/internal/spoken"
 )
 
@@ -220,17 +221,63 @@ func (t *Timers) cancel(ids ...int64) {
 			continue
 		}
 		e.timer.Stop()
+		delete(t.entries, id)
 		if e.stopRing != nil {
-			e.stopRing() // fire removes it when the ring loop ends
+			e.stopRing() // already gone from the store, deleted as it went off
 			continue
 		}
-		delete(t.entries, id)
 		pending = append(pending, id)
 	}
 	t.mu.Unlock()
 	for _, id := range pending {
 		t.forget(id)
 	}
+}
+
+// snooze stops every ringing timer, alarm and reminder and sets it again,
+// d from now. It returns how many it snoozed.
+func (t *Timers) snooze(ctx context.Context, d time.Duration) (int, error) {
+	t.mu.Lock()
+	var ringing []Timer
+	for _, e := range t.entries {
+		if e.ringing() {
+			ringing = append(ringing, e.Timer)
+		}
+	}
+	t.mu.Unlock()
+	at := time.Now().Add(d)
+	for _, tm := range ringing {
+		t.cancel(tm.ID)
+		tm.At = at
+		if _, err := t.add(ctx, tm); err != nil {
+			return 0, err
+		}
+	}
+	return len(ringing), nil
+}
+
+// extend adds d to a timer: to when it goes off, or, if it is ringing, d
+// from now. It returns the timer as rescheduled.
+func (t *Timers) extend(ctx context.Context, id int64, d time.Duration) (*entry, error) {
+	t.mu.Lock()
+	e, ok := t.entries[id]
+	if !ok {
+		t.mu.Unlock()
+		return nil, errors.WithMessagef(fault.ErrNotFound, "timer %d", id)
+	}
+	tm := e.Timer
+	ringing := e.ringing()
+	t.mu.Unlock()
+
+	tm.At = tm.At.Add(d)
+	if ringing {
+		tm.At = time.Now().Add(d)
+	}
+	if tm.Duration > 0 {
+		tm.Duration += d
+	}
+	t.cancel(id)
+	return t.add(ctx, tm)
 }
 
 // Close stops every timer for shutdown: pending ones stay in the store, to

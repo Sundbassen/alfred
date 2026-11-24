@@ -97,7 +97,8 @@ func Register(r *assistant.Router, p Player) {
 	}, h.mix)
 	assistant.Handle(r, assistant.Spec{
 		Description: "Pause the music",
-		Phrases:     []string{"pause", "pause the music", "stop", "stop the music"},
+		// Bare "stop" is the stop skill's: it stops a ringing timer first.
+		Phrases: []string{"pause", "pause the music", "stop the music"},
 	}, h.pause)
 	assistant.Handle(r, assistant.Spec{
 		Description: "Resume the music",

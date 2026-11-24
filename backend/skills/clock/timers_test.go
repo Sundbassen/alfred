@@ -1,6 +1,7 @@
 package clock
 
 import (
+	"context"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -86,6 +87,32 @@ func TestCloseStopsEverything(t *testing.T) {
 		synctest.Wait()
 		if chimes, _ := out.counts(); chimes != 1 {
 			t.Errorf("%d chimes, want 1 (before Close)", chimes)
+		}
+	})
+}
+
+func TestStopEndsRinging(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		out := &fakeAnnouncer{}
+		timers := NewTimers(out, nil)
+		defer timers.Close()
+		timers.add(KindAlarm, when{At: time.Now().Add(time.Hour)}, "")
+
+		if stopped, err := timers.Stop(context.Background()); stopped || err != nil {
+			t.Errorf("Stop before ringing = %v, %v; want false (only pending)", stopped, err)
+		}
+		time.Sleep(time.Hour)
+		synctest.Wait()
+		if stopped, err := timers.Stop(context.Background()); !stopped || err != nil {
+			t.Errorf("Stop while ringing = %v, %v; want true", stopped, err)
+		}
+		time.Sleep(ringFor)
+		synctest.Wait()
+		timers.mu.Lock()
+		left := len(timers.entries)
+		timers.mu.Unlock()
+		if chimes, _ := out.counts(); chimes != 1 || left != 0 {
+			t.Errorf("%d chimes, %d entries left; want 1 chime and none left", chimes, left)
 		}
 	})
 }

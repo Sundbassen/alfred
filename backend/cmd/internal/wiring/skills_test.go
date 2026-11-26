@@ -283,10 +283,12 @@ func TestSleepTimerPhrasesBeatClockCancel(t *testing.T) {
 	}
 	m := match.New(r.Intents())
 	for transcript, want := range map[string]string{
-		"Cancel the sleep timer.":       "music_sleep_cancel",
-		"Cancel the timer.":             "timer_cancel",
-		"Add 5 minutes to the timer.":   "timer_extend",
-		"Stop the music in 20 minutes.": "music_sleep",
+		"Cancel the sleep timer.":           "music_sleep_cancel",
+		"Cancel the timer.":                 "timer_cancel",
+		"Add 5 minutes to the timer.":       "timer_extend",
+		"Stop the music in 20 minutes.":     "music_sleep",
+		"Set a sleep timer for 30 minutes.": "music_sleep",
+		"Set a timer for 30 minutes.":       "timer_set",
 	} {
 		if rec, err := m.Recognize(context.Background(), transcript); err != nil || rec.Intent != want {
 			t.Errorf("%q: %+v, %v; want %s", transcript, rec, err, want)

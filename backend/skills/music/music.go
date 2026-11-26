@@ -168,6 +168,7 @@ func Register(r *assistant.Router, p Player, logger *slog.Logger) {
 		Phrases: []string{
 			"stop the music in {when}", "pause the music in {when}", "turn off the music in {when}",
 			"stop the music at {when}", "sleep timer {when}",
+			"set a sleep timer for {when}", "sleep timer for {when}",
 		},
 	}, h.sleep)
 	assistant.Handle(r, assistant.Spec{
@@ -216,9 +217,11 @@ func (h *handler) sleep(ctx context.Context, in Sleep) (assistant.Response, erro
 	var timer *time.Timer
 	timer = time.AfterFunc(w.At.Sub(now), func() {
 		h.mu.Lock()
-		if h.sleepTimer == timer {
-			h.sleepTimer = nil
+		if h.sleepTimer != timer { // replaced or cancelled as it fired
+			h.mu.Unlock()
+			return
 		}
+		h.sleepTimer = nil
 		h.mu.Unlock()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -289,8 +292,11 @@ func (h *handler) cancelSleep(context.Context, CancelSleep) (assistant.Response,
 }
 
 func (h *handler) pause(ctx context.Context, _ Pause) (assistant.Response, error) {
+	if err := h.player.Pause(ctx, Target{}); err != nil {
+		return assistant.Response{}, err
+	}
 	h.stopSleep()
-	return ack("Paused.", h.player.Pause(ctx, Target{}))
+	return assistant.Response{Text: "Paused."}, nil
 }
 
 func (h *handler) shuffle(ctx context.Context, _ Shuffle) (assistant.Response, error) {

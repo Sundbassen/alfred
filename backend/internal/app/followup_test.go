@@ -172,6 +172,19 @@ func TestQuestionForAMissingSlot(t *testing.T) {
 	}
 }
 
+func TestListeningRestartsTheClock(t *testing.T) {
+	a, did := newAskingAssistant(t)
+	now := time.Now()
+	a.now = func() time.Time { return now }
+	respond(t, a, "Add milk.")
+	now = now.Add(10 * time.Second) // saying a long question
+	a.Listening()
+	now = now.Add(QuestionTTL - time.Second)
+	if reply := respond(t, a, "The shopping list."); reply.Text != "Added." || len(*did) != 1 {
+		t.Errorf("answer within the TTL after Listening: %+v, did %q", reply, *did)
+	}
+}
+
 func TestCommandInsteadOfAnswer(t *testing.T) {
 	a, did := newAskingAssistant(t)
 	respond(t, a, "Add milk.")

@@ -33,7 +33,7 @@ func (Help) IntentName() string { return "help" }
 // yet (#61).
 type History struct {
 	mu   sync.Mutex
-	last string
+	last assistant.Response
 }
 
 // NewHistory returns an empty History.
@@ -44,11 +44,11 @@ func NewHistory() *History { return &History{} }
 func (h *History) Middleware(next assistant.Handler) assistant.Handler {
 	return assistant.HandlerFunc(func(ctx context.Context, intent assistant.Intent) (assistant.Response, error) {
 		resp, err := next.Handle(ctx, intent)
-		said := resp.Text
+		said := resp
 		if err != nil {
-			said = assistant.SpokenText(err)
+			said = assistant.Response{Text: assistant.SpokenText(err)}
 		}
-		if said != "" {
+		if said.Text != "" {
 			h.mu.Lock()
 			h.last = said
 			h.mu.Unlock()
@@ -57,8 +57,9 @@ func (h *History) Middleware(next assistant.Handler) assistant.Handler {
 	})
 }
 
-// Last returns the last reply, or "" if there was none.
-func (h *History) Last() string {
+// Last returns the last reply (with its follow-up question, if it asked
+// one), or a zero Response if there was none.
+func (h *History) Last() assistant.Response {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.last
@@ -77,8 +78,10 @@ func Register(r *assistant.Router, history *History) {
 		Description: "Repeat what Alfred said last",
 		Phrases:     []string{"repeat that", "say that again", "what did you say", "repeat", "can you repeat that", "could you say that again"},
 	}, func(context.Context, Repeat) (assistant.Response, error) {
-		if last := history.Last(); last != "" {
-			return assistant.Response{Text: last}, nil
+		// Repeating a question asks it again, so its answer is still
+		// expected.
+		if last := history.Last(); last.Text != "" {
+			return last, nil
 		}
 		return assistant.Response{Text: "I haven't said anything yet."}, nil
 	})

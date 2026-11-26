@@ -141,7 +141,7 @@ func (c *commandController) handle(ctx context.Context, chunk []byte) {
 			if !c.assembler.Speaking() {
 				c.waitedBytes += len(chunk)
 				if c.waitedBytes >= c.config.timeoutBytes {
-					c.logger.Info("No command followed the wake word, listening again",
+					c.logger.Info("No command followed, listening again",
 						slog.Float64("waited_seconds", c.seconds(c.waitedBytes)))
 					c.listen()
 				}

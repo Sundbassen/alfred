@@ -47,8 +47,8 @@ type Assistant struct {
 }
 
 // QuestionTTL is how long a follow-up question waits for its answer,
-// counted from when its handler returned, so it includes the time to say
-// the question.
+// counted from when its handler returned, or from Listening if the front
+// end calls it once it has said the question.
 const QuestionTTL = 15 * time.Second
 
 // FollowUpBy is the Recognition.By of an answer to a follow-up question.
@@ -130,6 +130,17 @@ func (a *Assistant) dispatch(ctx context.Context, intent assistant.Intent, rec a
 		reply.Listen = true
 	}
 	return reply, nil
+}
+
+// Listening restarts the pending question's QuestionTTL: the front end
+// calls it when it starts listening for the answer, after saying the
+// question, so a long question doesn't use up the time to answer it.
+func (a *Assistant) Listening() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.question != nil {
+		a.askedAt = a.now()
+	}
 }
 
 // takeQuestion returns and clears the pending question, if it hasn't

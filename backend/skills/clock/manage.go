@@ -19,12 +19,13 @@ import (
 // "cancel my 7 o'clock alarm", "cancel the reminder to call mom", "cancel
 // all timers". With one pending, "cancel it" is enough.
 //
-// Among is set when Alfred asked "Which one?": the selection it asked
-// about, so the answer ("the 10 minute one", "all of them") narrows it down
-// instead of starting over. It is not a slot; recognizers never fill it.
+// Among is set when Alfred asked "Which one?": the ids of the entries it
+// listed, so the answer ("the 10 minute one", "all of them") picks among
+// those instead of starting over. It is not a slot; recognizers never fill
+// it.
 type CancelTimer struct {
 	What  string `slot:"what,optional"`
-	Among string
+	Among []int64
 }
 
 func (CancelTimer) IntentName() string { return "timer_cancel" }
@@ -144,12 +145,12 @@ func (sel selection) noneText() string {
 func (h *handler) cancelTimer(ctx context.Context, i CancelTimer) (assistant.Response, error) {
 	now := h.now()
 	sel := parseSelection(i.What)
-	among := parseSelection(i.Among)
+	entries := h.timers.list()
+	if listed := slices.DeleteFunc(slices.Clone(entries), func(e entry) bool { return !slices.Contains(i.Among, e.ID) }); len(listed) > 0 {
+		entries = listed // the ones Alfred asked about, those still set
+	}
 	var all, matched []entry
-	for _, e := range h.timers.list() {
-		if !among.matches(e, now) {
-			continue
-		}
+	for _, e := range entries {
 		if len(sel.kinds) == 0 || slices.Contains(sel.kinds, e.Kind) {
 			all = append(all, e)
 		}
@@ -167,14 +168,16 @@ func (h *handler) cancelTimer(ctx context.Context, i CancelTimer) (assistant.Res
 		}
 	case len(matched) > 1 && !sel.all:
 		names := make([]string, len(matched))
+		ids := make([]int64, len(matched))
 		for i, e := range matched {
 			names[i] = e.name(now)
+			ids[i] = e.ID
 		}
 		// The answer ("the 10 minute one", "all of them") is a new What,
 		// among the ones just listed.
 		return assistant.Response{
 			Text: fmt.Sprintf("You have %d: %s. Which one?", len(matched), spoken.JoinAnd(names)),
-			Ask:  &assistant.Question{Intent: CancelTimer{Among: strings.TrimSpace(i.Among + " " + i.What)}, Slot: "what"},
+			Ask:  &assistant.Question{Intent: CancelTimer{Among: ids}, Slot: "what"},
 		}, nil
 	}
 

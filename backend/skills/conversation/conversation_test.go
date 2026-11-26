@@ -16,6 +16,10 @@ type rally struct{}
 
 func (rally) IntentName() string { return "rally" }
 
+type asking struct{}
+
+func (asking) IntentName() string { return "asking" }
+
 type miss struct{}
 
 func (miss) IntentName() string { return "miss" }
@@ -28,6 +32,10 @@ func newRouter() (*assistant.Router, *History) {
 		func(context.Context, ping) (assistant.Response, error) { return assistant.Response{Text: "Pong."}, nil })
 	assistant.Handle(r, assistant.Spec{Phrases: []string{"ping twice"}, Help: "play table tennis."},
 		func(context.Context, rally) (assistant.Response, error) { return assistant.Response{}, nil })
+	assistant.Handle(r, assistant.Spec{Phrases: []string{"ask"}},
+		func(context.Context, asking) (assistant.Response, error) {
+			return assistant.Response{Text: "Which one?", Ask: &assistant.Question{Intent: asking{}}}, nil
+		})
 	assistant.Handle(r, assistant.Spec{Phrases: []string{"miss"}},
 		func(context.Context, miss) (assistant.Response, error) {
 			return assistant.Response{}, &assistant.SpokenError{Text: "I missed."}
@@ -64,6 +72,11 @@ func TestRepeat(t *testing.T) {
 	}
 	if got := say(Repeat{}); got != "I missed." {
 		t.Errorf("repeat after an error: %q, want I missed.", got)
+	}
+	// Repeating a question asks it again.
+	say(asking{})
+	if resp, err := r.Dispatch(ctx, Repeat{}); err != nil || resp.Text != "Which one?" || resp.Ask == nil {
+		t.Errorf("repeat a question: %+v, %v; want it asked again", resp, err)
 	}
 }
 

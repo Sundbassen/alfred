@@ -158,7 +158,8 @@ func main() {
 				if reply.Listen {
 					// Alfred asked something: take the answer without the
 					// wake word (speaking has finished, so it won't hear
-					// itself).
+					// itself), with the full time to answer.
+					asst.Listening()
 					sttService.Listen()
 				}
 			}

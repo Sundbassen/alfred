@@ -174,14 +174,17 @@ func TestPromptCoversEveryIntent(t *testing.T) {
 		sentences = append(sentences, strings.TrimSpace(s))
 	}
 	// Every intent's first phrase that contributes anything is in the
-	// prompt, as a sentence or the start of one.
+	// prompt: a plain phrase as a sentence, a template fragment as a
+	// sentence or the start of one.
 	for _, rt := range r.Intents() {
 		for _, phrase := range rt.Spec.Phrases {
 			text := match.PromptText(phrase)
 			if text == "" {
 				continue
 			}
-			if !slices.ContainsFunc(sentences, func(s string) bool { return s == text || strings.HasPrefix(s, text+" ") }) {
+			if !slices.ContainsFunc(sentences, func(s string) bool {
+				return s == text || strings.Contains(phrase, "{") && strings.HasPrefix(s, text+" ")
+			}) {
 				t.Errorf("prompt lacks %s's %q:\n%s", rt.Name, text, prompt)
 			}
 			break

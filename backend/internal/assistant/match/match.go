@@ -164,8 +164,8 @@ const MaxPromptWords = 150
 // intent gets a fair share: phrases are taken round-robin across intents
 // (each intent's first phrase, then each one's second, …), deduplicated.
 // Each phrase contributes PromptText. A template fragment that only
-// repeats the start of another sentence ("Set." next to "Set a timer.") is
-// dropped at the end.
+// repeats the start of another phrase ("Set." next to "Set a timer.") is
+// left out, unless it is also a plain phrase.
 //
 // Sentences, not a comma-separated list: whisper continues the style of its
 // prompt, and after a list prompt greedy decoding looped ("what time is it,
@@ -177,56 +177,61 @@ func (m *Matcher) Prompt() string {
 		text     string
 		fragment bool // from a template
 	}
+	var all []candidate
+	plain := make(map[string]bool)
+	for _, p := range m.phrases {
+		if text := promptText(p); text != "" {
+			all = append(all, candidate{text, p.template != nil})
+			plain[text] = plain[text] || p.template == nil
+		}
+	}
+	// A fragment that is also a plain phrase ("play", the resume command)
+	// stays; one that only starts another sentence goes before budgeting.
+	repeats := func(c candidate) bool {
+		return c.fragment && !plain[c.text] && slices.ContainsFunc(all, func(o candidate) bool {
+			return strings.HasPrefix(o.text, c.text+" ")
+		})
+	}
 	var order []string
-	byIntent := make(map[string][]candidate)
+	byIntent := make(map[string][]string)
 	for _, p := range m.phrases {
 		text := promptText(p)
-		if text == "" {
+		if text == "" || repeats(candidate{text, p.template != nil}) {
 			continue
 		}
 		if _, ok := byIntent[p.intent]; !ok {
 			order = append(order, p.intent)
 		}
-		byIntent[p.intent] = append(byIntent[p.intent], candidate{text, p.template != nil})
+		byIntent[p.intent] = append(byIntent[p.intent], text)
 	}
 
-	var chosen []candidate
+	var sentences []string
 	seen := make(map[string]bool)
 	words := 0
 	for round := 0; ; round++ {
 		added := false
 		for _, intent := range order {
-			cands := byIntent[intent]
-			if round >= len(cands) {
+			texts := byIntent[intent]
+			if round >= len(texts) {
 				continue
 			}
 			added = true
-			c := cands[round]
-			n := len(strings.Fields(c.text))
-			if seen[c.text] || words+n > MaxPromptWords {
+			text := texts[round]
+			fields := strings.Fields(text)
+			if seen[text] || words+len(fields) > MaxPromptWords {
 				continue
 			}
-			seen[c.text] = true
-			words += n
-			chosen = append(chosen, c)
+			seen[text] = true
+			words += len(fields)
+			end := "."
+			if questionWords[fields[0]] {
+				end = "?"
+			}
+			sentences = append(sentences, strings.ToUpper(text[:1])+text[1:]+end)
 		}
 		if !added {
 			break
 		}
-	}
-
-	var sentences []string
-	for _, c := range chosen {
-		if c.fragment && slices.ContainsFunc(chosen, func(o candidate) bool {
-			return o.text != c.text && strings.HasPrefix(o.text, c.text+" ")
-		}) {
-			continue
-		}
-		end := "."
-		if questionWords[strings.Fields(c.text)[0]] {
-			end = "?"
-		}
-		sentences = append(sentences, strings.ToUpper(c.text[:1])+c.text[1:]+end)
 	}
 	return strings.Join(sentences, " ")
 }

@@ -158,6 +158,14 @@ func TestPromptDropsRepeatedFragments(t *testing.T) {
 	if got, want := m.Prompt(), "Set a timer. Stop. Stop the music."; got != want {
 		t.Errorf("Prompt() = %q, want %q", got, want)
 	}
+	// A fragment that is also a plain phrase stays, whichever comes first.
+	m = New(routes(
+		route("play", "play {query}", "play a radio with {artists}"),
+		route("resume", "play"),
+	))
+	if got, want := m.Prompt(), "Play. Play a radio."; got != want {
+		t.Errorf("Prompt() = %q, want %q", got, want)
+	}
 }
 
 func TestNoMatchErrorCarriesBest(t *testing.T) {
@@ -218,9 +226,9 @@ func TestTemplateNeedsSlotWords(t *testing.T) {
 
 func TestPromptTemplates(t *testing.T) {
 	m := New(routes(route("play", "play {query}", "play a radio with {artists}"), route("pause", "pause")))
-	// Round-robin: each intent's first phrase before any second one; the
-	// fragment "Play." goes, since "Play a radio." starts with it.
-	if got, want := m.Prompt(), "Pause. Play a radio."; got != want {
+	// The fragment "Play." goes, since "Play a radio." starts with it, so
+	// play's first sentence is "Play a radio."
+	if got, want := m.Prompt(), "Play a radio. Pause."; got != want {
 		t.Errorf("Prompt() = %q, want %q", got, want)
 	}
 }

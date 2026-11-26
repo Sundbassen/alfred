@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/sundbassen/alfred/internal/store"
 	"github.com/sundbassen/alfred/internal/voice/tts"
 	"github.com/sundbassen/alfred/skills/music/musicservice"
+	"github.com/sundbassen/alfred/skills/volume/volumeservice"
 )
 
 func intents(t *testing.T, cfg Config) map[string]bool {
@@ -61,6 +63,29 @@ func TestMusicNeedsSpotifyConfigAndLogin(t *testing.T) {
 	}
 	if rec, err := match.New(r.Intents()).Recognize(context.Background(), "Stop."); err != nil || rec.Intent != "stop" {
 		t.Errorf("\"Stop.\" = %+v, %v; want the stop intent", rec, err)
+	}
+}
+
+// fakeWpctl is an executable to configure as wpctl; registering the volume
+// skill only checks that it exists.
+func fakeWpctl(t *testing.T) volumeservice.WpctlConfig {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "wpctl")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return volumeservice.WpctlConfig{Path: path}
+}
+
+func TestVolumeNeedsWpctl(t *testing.T) {
+	if got := intents(t, Config{}); got["volume_up"] {
+		t.Error("volume registered without wpctl")
+	}
+	if got := intents(t, Config{Volume: volumeservice.WpctlConfig{Path: filepath.Join(t.TempDir(), "missing")}}); got["volume_up"] {
+		t.Error("volume registered with a missing wpctl")
+	}
+	if got := intents(t, Config{Volume: fakeWpctl(t)}); !got["volume_up"] {
+		t.Error("volume not registered with wpctl")
 	}
 }
 
@@ -161,7 +186,11 @@ func TestPromptCoversEveryIntent(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := assistant.NewRouter()
-	cfg := Config{Spotify: musicservice.SpotifyConfig{ClientID: "cid", TokenFile: token}}
+	// Every skill, whatever this machine has installed.
+	cfg := Config{
+		Spotify: musicservice.SpotifyConfig{ClientID: "cid", TokenFile: token},
+		Volume:  fakeWpctl(t),
+	}
 	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatal(err)
 	}
@@ -195,10 +224,11 @@ func TestPromptCoversEveryIntent(t *testing.T) {
 
 func TestHelpAndRepeat(t *testing.T) {
 	r := assistant.NewRouter()
-	if err := RegisterSkills(context.Background(), r, Config{}, testOutput(), testDB(t), slog.New(slog.DiscardHandler)); err != nil {
+	cfg := Config{Volume: fakeWpctl(t)}
+	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatal(err)
 	}
-	want := "I can tell you the time and date, and set timers and reminders."
+	want := "I can tell you the time and date, set timers and reminders, and change the volume."
 	if got := ask(t, r, "What can you do?"); got != want {
 		t.Errorf("help: %q, want %q", got, want)
 	}

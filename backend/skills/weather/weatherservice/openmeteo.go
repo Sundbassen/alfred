@@ -21,8 +21,6 @@ import (
 // OpenMeteoConfig is the speaker's location.
 type OpenMeteoConfig struct {
 	Latitude, Longitude float64
-	// Place names the location in answers ("In Copenhagen, …"); optional.
-	Place string
 }
 
 // cacheFor is how long a forecast is reused before asking again.
@@ -34,6 +32,7 @@ type OpenMeteo struct {
 	api    string
 	client *http.Client
 
+	now     func() time.Time
 	mu      sync.Mutex
 	cached  weather.Forecast
 	fetched time.Time
@@ -41,7 +40,8 @@ type OpenMeteo struct {
 
 // NewOpenMeteo returns a forecaster for the configured location.
 func NewOpenMeteo(cfg OpenMeteoConfig) *OpenMeteo {
-	return &OpenMeteo{cfg: cfg, api: "https://api.open-meteo.com/v1/forecast", client: &http.Client{Timeout: 10 * time.Second}}
+	return &OpenMeteo{cfg: cfg, api: "https://api.open-meteo.com/v1/forecast",
+		client: &http.Client{Timeout: 10 * time.Second}, now: time.Now}
 }
 
 // Forecast returns the current weather and 7 days of forecast, cached for
@@ -49,29 +49,32 @@ func NewOpenMeteo(cfg OpenMeteoConfig) *OpenMeteo {
 func (o *OpenMeteo) Forecast(ctx context.Context) (weather.Forecast, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
-	if !o.fetched.IsZero() && time.Since(o.fetched) < cacheFor {
+	if !o.fetched.IsZero() && o.now().Sub(o.fetched) < cacheFor {
 		return o.cached, nil
 	}
 	f, err := o.fetch(ctx)
 	if err != nil {
 		return weather.Forecast{}, err
 	}
-	o.cached, o.fetched = f, time.Now()
+	o.cached, o.fetched = f, o.now()
 	return f, nil
 }
 
+// response is Open-Meteo's answer. Values are pointers: any of them can be
+// null where a weather model has no data.
 type response struct {
-	Timezone string `json:"timezone"`
-	Current  struct {
-		Temperature float64 `json:"temperature_2m"`
-		WeatherCode int     `json:"weather_code"`
+	Timezone         string `json:"timezone"`
+	UTCOffsetSeconds int    `json:"utc_offset_seconds"`
+	Current          struct {
+		Temperature *float64 `json:"temperature_2m"`
+		WeatherCode *int     `json:"weather_code"`
 	} `json:"current"`
 	Daily struct {
-		Time        []string  `json:"time"`
-		WeatherCode []int     `json:"weather_code"`
-		Max         []float64 `json:"temperature_2m_max"`
-		Min         []float64 `json:"temperature_2m_min"`
-		RainChance  []int     `json:"precipitation_probability_max"`
+		Time        []string   `json:"time"`
+		WeatherCode []*int     `json:"weather_code"`
+		Max         []*float64 `json:"temperature_2m_max"`
+		Min         []*float64 `json:"temperature_2m_min"`
+		RainChance  []*int     `json:"precipitation_probability_max"`
 	} `json:"daily"`
 }
 
@@ -98,7 +101,7 @@ func (o *OpenMeteo) fetch(ctx context.Context) (weather.Forecast, error) {
 		return weather.Forecast{}, errors.Prefix(errors.WithMessage(err, "read Open-Meteo response"), fault.ErrServiceUnavailable)
 	}
 	if category := fault.ErrorFromHTTPCode(resp.StatusCode); category != nil {
-		return weather.Forecast{}, errors.WithMessagef(category, "Open-Meteo: %d %s", resp.StatusCode, data)
+		return weather.Forecast{}, errors.WithMessagef(category, "Open-Meteo: %d %s", resp.StatusCode, reason(data))
 	}
 	var r response
 	if err := json.Unmarshal(data, &r); err != nil {
@@ -107,32 +110,60 @@ func (o *OpenMeteo) fetch(ctx context.Context) (weather.Forecast, error) {
 	return r.forecast()
 }
 
-func (r response) forecast() (weather.Forecast, error) {
-	loc, err := time.LoadLocation(r.Timezone)
-	if err != nil {
-		loc = time.Local
+// reason is what to log about an error response: Open-Meteo's reason
+// ({"error": true, "reason": "..."}), or the start of the body.
+func reason(data []byte) string {
+	var e struct {
+		Reason string `json:"reason"`
 	}
+	if json.Unmarshal(data, &e) == nil && e.Reason != "" {
+		return e.Reason
+	}
+	if len(data) > 200 {
+		return string(data[:200]) + "…"
+	}
+	return string(data)
+}
+
+func (r response) forecast() (weather.Forecast, error) {
+	// Only the calendar dates matter, so the zone at the current offset is
+	// enough (and needs no time zone database).
+	loc := time.FixedZone(r.Timezone, r.UTCOffsetSeconds)
 	d := r.Daily
 	n := len(d.Time)
 	if len(d.WeatherCode) != n || len(d.Max) != n || len(d.Min) != n || len(d.RainChance) != n {
 		return weather.Forecast{}, errors.WithMessage(fault.ErrDecoding, "Open-Meteo daily arrays differ in length")
 	}
-	f := weather.Forecast{Now: weather.Current{Temperature: r.Current.Temperature, Condition: condition(r.Current.WeatherCode)}}
+	if r.Current.Temperature == nil {
+		return weather.Forecast{}, errors.WithMessage(fault.ErrDecoding, "Open-Meteo has no current temperature")
+	}
+	f := weather.Forecast{Now: weather.Current{Temperature: *r.Current.Temperature, Condition: condition(r.Current.WeatherCode)}}
 	for i := range n {
+		if d.Max[i] == nil || d.Min[i] == nil {
+			continue // no forecast for that day
+		}
 		date, err := time.ParseInLocation(time.DateOnly, d.Time[i], loc)
 		if err != nil {
 			return weather.Forecast{}, errors.Prefix(errors.WithMessagef(err, "Open-Meteo date %q", d.Time[i]), fault.ErrDecoding)
 		}
+		rain := -1
+		if d.RainChance[i] != nil {
+			rain = *d.RainChance[i]
+		}
 		f.Days = append(f.Days, weather.Day{
-			Date: date, High: d.Max[i], Low: d.Min[i], RainChance: d.RainChance[i], Condition: condition(d.WeatherCode[i]),
+			Date: date, High: *d.Max[i], Low: *d.Min[i], RainChance: rain, Condition: condition(d.WeatherCode[i]),
 		})
 	}
 	return f, nil
 }
 
-// condition says a WMO weather code (as Open-Meteo reports it) in words.
-func condition(code int) string {
-	switch code {
+// condition says a WMO weather code (as Open-Meteo reports it) in words,
+// "" when there is none.
+func condition(c *int) string {
+	if c == nil {
+		return ""
+	}
+	switch *c {
 	case 0:
 		return "clear"
 	case 1:

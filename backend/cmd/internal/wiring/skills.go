@@ -46,6 +46,9 @@ type Config struct {
 	// Weather is the speaker's location for the weather skill; nil (no
 	// coordinates configured) disables it.
 	Weather *weatherservice.OpenMeteoConfig
+	// WeatherPlace names the location in weather answers ("In Copenhagen,
+	// …"); optional.
+	WeatherPlace string
 	// IntentModel is the local model recognizing what the phrase
 	// templates miss; a missing model file disables it.
 	IntentModel IntentModelConfig
@@ -76,7 +79,8 @@ type IntentModelConfig struct {
 func ConfigFromEnv() Config {
 	return Config{
 		DB:      envOr("ALFRED_DB", store.DefaultPath()),
-		Weather: weatherFromEnv(),
+		Weather:      weatherFromEnv(),
+		WeatherPlace: os.Getenv("ALFRED_WEATHER_PLACE"),
 		Spotify: musicservice.SpotifyConfig{
 			ClientID:  os.Getenv("ALFRED_SPOTIFY_CLIENT_ID"),
 			TokenFile: envOr("ALFRED_SPOTIFY_TOKEN_FILE", musicservice.DefaultSpotifyTokenFile()),
@@ -116,9 +120,9 @@ func RegisterSkills(ctx context.Context, r *assistant.Router, cfg Config, out *a
 	lists.Register(r, listsstore.New(db))
 
 	if cfg.Weather == nil {
-		logger.Info("Weather skill disabled: set ALFRED_WEATHER_LATITUDE and ALFRED_WEATHER_LONGITUDE")
+		logger.Info("Weather skill disabled: ALFRED_WEATHER_LATITUDE and ALFRED_WEATHER_LONGITUDE are unset or not valid coordinates")
 	} else {
-		weather.Register(r, weatherservice.NewOpenMeteo(*cfg.Weather), cfg.Weather.Place)
+		weather.Register(r, weatherservice.NewOpenMeteo(*cfg.Weather), cfg.WeatherPlace)
 	}
 
 	player, err := registerMusic(r, cfg.Spotify, logger)
@@ -186,10 +190,11 @@ func envOr(key, def string) string {
 func weatherFromEnv() *weatherservice.OpenMeteoConfig {
 	lat, err1 := strconv.ParseFloat(os.Getenv("ALFRED_WEATHER_LATITUDE"), 64)
 	lon, err2 := strconv.ParseFloat(os.Getenv("ALFRED_WEATHER_LONGITUDE"), 64)
-	if err1 != nil || err2 != nil || lat < -90 || lat > 90 || lon < -180 || lon > 180 {
+	// Written so NaN (which ParseFloat accepts) fails too.
+	if err1 != nil || err2 != nil || !(lat >= -90 && lat <= 90) || !(lon >= -180 && lon <= 180) {
 		return nil
 	}
-	return &weatherservice.OpenMeteoConfig{Latitude: lat, Longitude: lon, Place: os.Getenv("ALFRED_WEATHER_PLACE")}
+	return &weatherservice.OpenMeteoConfig{Latitude: lat, Longitude: lon}
 }
 
 func envInt(key string, def int) int {

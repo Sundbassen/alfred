@@ -191,6 +191,7 @@ func TestPromptCoversEveryIntent(t *testing.T) {
 	cfg := Config{
 		Spotify: musicservice.SpotifyConfig{ClientID: "cid", TokenFile: token},
 		Volume:  fakeWpctl(t),
+		Weather: &weatherservice.OpenMeteoConfig{Latitude: 55.7, Longitude: 12.6},
 	}
 	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatal(err)
@@ -389,7 +390,11 @@ func TestWeatherNeedsALocation(t *testing.T) {
 	}
 	t.Setenv("ALFRED_WEATHER_LONGITUDE", "12.5683")
 	t.Setenv("ALFRED_WEATHER_PLACE", "Copenhagen")
-	if cfg := ConfigFromEnv(); cfg.Weather == nil || cfg.Weather.Place != "Copenhagen" || cfg.Weather.Longitude != 12.5683 {
-		t.Errorf("weather config: %+v", cfg.Weather)
+	if cfg := ConfigFromEnv(); cfg.Weather == nil || cfg.WeatherPlace != "Copenhagen" || cfg.Weather.Longitude != 12.5683 {
+		t.Errorf("weather config: %+v, place %q", cfg.Weather, cfg.WeatherPlace)
+	}
+	t.Setenv("ALFRED_WEATHER_LATITUDE", "NaN")
+	if cfg := ConfigFromEnv(); cfg.Weather != nil {
+		t.Errorf("NaN latitude: %+v", cfg.Weather)
 	}
 }

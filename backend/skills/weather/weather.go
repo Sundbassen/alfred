@@ -34,9 +34,9 @@ type Current struct {
 
 // Day is one day's forecast.
 type Day struct {
-	Date       time.Time // midnight, local time
+	Date       time.Time // midnight in the forecast location's time zone
 	High, Low  float64
-	RainChance int // percent
+	RainChance int // percent; -1 when unknown
 	Condition  string
 }
 
@@ -72,8 +72,10 @@ func register(r *assistant.Router, f Forecaster, place string, now func() time.T
 		Phrases: []string{
 			"what is the weather", "what is the weather like", "what is the weather {day}",
 			"what is the weather like {day}", "how is the weather", "how is the weather {day}",
-			"what is the forecast", "what is the forecast for {day}", "how cold is it", "how warm is it",
-			"what is the temperature",
+			"what is the weather going to be {day}", "what is the weather going to be like {day}",
+			"how is the weather looking", "how is the weather looking {day}",
+			"what is the forecast", "what is the forecast for {day}", "how cold is it outside",
+			"how warm is it outside", "what is the temperature",
 		},
 		Help: "tell you the weather",
 	}, h.weather)
@@ -92,29 +94,38 @@ type handler struct {
 	now        func() time.Time
 }
 
-// day finds the forecast for the spoken day ("" is today).
-func (h *handler) day(ctx context.Context, said string) (Forecast, Day, string, error) {
+// whichDay asks for the day when the one said isn't one ParseDay knows
+// ("what's the weather in copenhagen"); the answer fills the day slot.
+func whichDay(intent assistant.Intent) assistant.Response {
+	return assistant.Response{Text: "Which day?", Ask: &assistant.Question{Intent: intent, Slot: "day"}}
+}
+
+// day finds the forecast for the spoken day ("" is today); ok is false if
+// the day isn't one ParseDay knows. A Saturday counts as "this weekend".
+func (h *handler) day(ctx context.Context, said string) (f Forecast, d Day, name string, ok bool, err error) {
 	now := h.now()
 	date, ok := spoken.ParseDay(match.Normalize(said), now)
 	if !ok {
-		return Forecast{}, Day{}, "", &assistant.SpokenError{Text: "Sorry, which day?",
-			Err: errors.WithMessagef(fault.ErrInvalidValue, "day %q", said)}
+		return Forecast{}, Day{}, "", false, nil
 	}
-	f, err := h.forecaster.Forecast(ctx)
+	f, err = h.forecaster.Forecast(ctx)
 	if err != nil {
-		return Forecast{}, Day{}, "", err
+		return Forecast{}, Day{}, "", true, err
 	}
 	for _, d := range f.Days {
 		if sameDay(d.Date, date) {
-			return f, d, dayName(date, now), nil
+			return f, d, dayName(date, now), true, nil
 		}
 	}
-	return Forecast{}, Day{}, "", &assistant.SpokenError{Text: "Sorry, I only have the forecast for the coming week.",
+	return Forecast{}, Day{}, "", true, &assistant.SpokenError{Text: "Sorry, I only have the forecast for the coming week.",
 		Err: errors.WithMessagef(fault.ErrNotFound, "no forecast for %s", date.Format(time.DateOnly))}
 }
 
 func (h *handler) weather(ctx context.Context, in Weather) (assistant.Response, error) {
-	f, d, name, err := h.day(ctx, in.Day)
+	f, d, name, ok, err := h.day(ctx, in.Day)
+	if !ok {
+		return whichDay(Weather{}), nil
+	}
 	if err != nil {
 		return assistant.Response{}, err
 	}
@@ -123,20 +134,33 @@ func (h *handler) weather(ctx context.Context, in Weather) (assistant.Response, 
 		summary += fmt.Sprintf(", with a %d percent chance of rain", d.RainChance)
 	}
 	var text string
-	if name == "today" {
+	switch {
+	case name != "today":
+		text = fmt.Sprintf("%s%s: %s.", h.in(), name, joinNonEmpty(d.Condition, summary))
+	case f.Now.Condition != "":
 		text = fmt.Sprintf("%sit's %s degrees and %s. Today: %s.", h.in(), degrees(f.Now.Temperature), f.Now.Condition, summary)
-	} else {
-		text = fmt.Sprintf("%s%s: %s, %s.", h.in(), name, d.Condition, summary)
+	default:
+		text = fmt.Sprintf("%sit's %s degrees. Today: %s.", h.in(), degrees(f.Now.Temperature), summary)
 	}
 	return assistant.Response{Text: capitalize(text)}, nil
 }
 
 func (h *handler) rain(ctx context.Context, in Rain) (assistant.Response, error) {
-	_, d, name, err := h.day(ctx, in.Day)
+	_, d, name, ok, err := h.day(ctx, in.Day)
+	if !ok {
+		return whichDay(Rain{}), nil
+	}
 	if err != nil {
 		return assistant.Response{}, err
 	}
-	chance := fmt.Sprintf("a %d percent chance of rain %s", d.RainChance, strings.ToLower(name))
+	where := ""
+	if h.place != "" {
+		where = " in " + h.place
+	}
+	if d.RainChance < 0 {
+		return assistant.Response{Text: "Sorry, I don't know the chance of rain " + name + where + "."}, nil
+	}
+	chance := fmt.Sprintf("a %d percent chance of rain %s%s", d.RainChance, name, where)
 	switch {
 	case d.RainChance >= 50:
 		return assistant.Response{Text: "Yes, " + chance + "."}, nil
@@ -177,6 +201,17 @@ func degrees(t float64) string {
 		return fmt.Sprintf("minus %d", -n)
 	}
 	return fmt.Sprint(n)
+}
+
+// joinNonEmpty joins the non-empty parts with ", ".
+func joinNonEmpty(parts ...string) string {
+	var kept []string
+	for _, p := range parts {
+		if p != "" {
+			kept = append(kept, p)
+		}
+	}
+	return strings.Join(kept, ", ")
 }
 
 func capitalize(s string) string {

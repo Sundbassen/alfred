@@ -181,10 +181,11 @@ func TestSetTimerReplies(t *testing.T) {
 
 func TestSetTimerErrors(t *testing.T) {
 	tests := map[string]string{
-		"Remind me to buy milk.":           "Sorry, I didn't get when.",
-		"Set a timer for banana.":          "Sorry, I didn't get when.",
-		"Set a timer for 30 hours.":        "Sorry, I can only set timers for up to 24 hours.",
-		"Remind me to run in the morning.": "Sorry, I didn't get when.",
+		"Remind me to buy milk.":             "Sorry, I didn't get when.",
+		"Set a timer for banana.":            "Sorry, I didn't get when.",
+		"Set a timer for 30 hours.":          "Sorry, I can only set timers for up to 24 hours.",
+		"Remind me to run in the morning.":   "Sorry, I didn't get when.",
+		"Remind me to call mom in 30 hours.": "Sorry, I can only set timers for up to 24 hours.",
 	}
 	for transcript, want := range tests {
 		r := assistant.NewRouter()

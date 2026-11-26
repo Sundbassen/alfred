@@ -14,6 +14,7 @@ import (
 	"github.com/sundbassen/alfred/internal/assistant"
 	"github.com/sundbassen/alfred/internal/assistant/match"
 	"github.com/sundbassen/alfred/internal/platform/fault"
+	"github.com/sundbassen/alfred/internal/spoken"
 )
 
 // AskTime is the intent "what time is it".
@@ -136,9 +137,15 @@ func (h *handler) setTimer(ctx context.Context, i SetTimer) (assistant.Response,
 			Err:  errors.WithMessagef(fault.ErrInvalidValue, "no time in %q", i.Message),
 		}
 	}
-	w, err := parseWhen(whenText, now)
+	w, err := spoken.ParseWhen(whenText, now)
 	if err != nil {
 		return assistant.Response{}, err
+	}
+	if w.Duration > maxDuration {
+		return assistant.Response{}, &assistant.SpokenError{
+			Text: "Sorry, I can only set timers for up to 24 hours.",
+			Err:  errors.WithMessagef(fault.ErrInvalidValue, "duration %s over %s", w.Duration, maxDuration),
+		}
 	}
 
 	kind := KindAlarm
@@ -148,7 +155,7 @@ func (h *handler) setTimer(ctx context.Context, i SetTimer) (assistant.Response,
 	case w.Duration > 0:
 		kind = KindTimer
 	}
-	e, err := h.timers.add(ctx, Timer{Kind: kind, At: w.At, Duration: w.Duration, Message: secondPerson(message)})
+	e, err := h.timers.add(ctx, Timer{Kind: kind, At: w.At, Duration: w.Duration, Message: spoken.SecondPerson(message)})
 	if err != nil {
 		return assistant.Response{}, err
 	}
@@ -156,18 +163,21 @@ func (h *handler) setTimer(ctx context.Context, i SetTimer) (assistant.Response,
 	var text string
 	switch e.Kind {
 	case KindTimer:
-		text = "Timer set for " + formatDuration(e.Duration) + "."
+		text = "Timer set for " + spoken.FormatDuration(e.Duration) + "."
 	case KindAlarm:
-		text = "Alarm set for " + formatClock(e.At, now) + "."
+		text = "Alarm set for " + spoken.FormatClock(e.At, now) + "."
 	case KindReminder:
-		at := "at " + formatClock(e.At, now)
+		at := "at " + spoken.FormatClock(e.At, now)
 		if e.Duration > 0 {
-			at = "in " + formatDuration(e.Duration)
+			at = "in " + spoken.FormatDuration(e.Duration)
 		}
 		text = "OK, I'll remind you to " + e.Message + " " + at + "."
 	}
 	return assistant.Response{Text: text}, nil
 }
+
+// maxDuration bounds timers; clock times are within two days anyway.
+const maxDuration = 24 * time.Hour
 
 // timeMarkers start a time in a reminder: "in 10 minutes", "at 7",
 // "tomorrow at 7", "tonight at 8".
@@ -180,7 +190,7 @@ var timeMarkers = map[string]bool{"in": true, "at": true, "tomorrow": true, "ton
 func splitReminder(text string, now time.Time) (whenText, message string, ok bool) {
 	tokens := strings.Fields(text)
 	parses := func(ts []string) bool {
-		_, err := parseWhen(strings.Join(ts, " "), now)
+		_, err := spoken.ParseWhen(strings.Join(ts, " "), now)
 		return err == nil
 	}
 	if len(tokens) > 0 && timeMarkers[tokens[0]] {

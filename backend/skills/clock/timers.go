@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"gitlab.com/tozd/go/errors"
+
+	"github.com/sundbassen/alfred/internal/spoken"
 )
 
 // Announcer is how timers get attention when they go off: app.Output, which
@@ -255,7 +257,7 @@ func (e *entry) ringText() string {
 	case KindReminder:
 		return "Reminder: " + e.Message + "."
 	case KindTimer:
-		return "Your timer for " + formatDuration(e.Duration) + " is done."
+		return "Your timer for " + spoken.FormatDuration(e.Duration) + " is done."
 	default:
 		return ""
 	}

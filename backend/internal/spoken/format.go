@@ -1,4 +1,4 @@
-package clock
+package spoken
 
 import (
 	"fmt"
@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-// formatDuration says a duration: "10 minutes", "1 hour and 30 minutes".
-func formatDuration(d time.Duration) string {
+// FormatDuration says a duration: "10 minutes", "1 hour and 30 minutes".
+func FormatDuration(d time.Duration) string {
 	d = d.Round(time.Second)
 	var parts []string
 	for _, u := range []struct {
@@ -22,7 +22,7 @@ func formatDuration(d time.Duration) string {
 	if len(parts) == 0 {
 		return "0 seconds"
 	}
-	return joinAnd(parts)
+	return JoinAnd(parts)
 }
 
 func plural(n int, word string) string {
@@ -32,16 +32,17 @@ func plural(n int, word string) string {
 	return fmt.Sprintf("%d %ss", n, word)
 }
 
-// joinAnd joins "a", "b" and "c" as "a, b and c".
-func joinAnd(parts []string) string {
+// JoinAnd joins "a", "b" and "c" as "a, b and c".
+func JoinAnd(parts []string) string {
 	if len(parts) <= 1 {
 		return strings.Join(parts, "")
 	}
 	return strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
 }
 
-// formatClock says a clock time relative to now: "19:00", "07:00 tomorrow".
-func formatClock(at, now time.Time) string {
+// FormatClock says a clock time relative to now: "19:00", "07:00 tomorrow".
+// at must be today or tomorrow; any other day is also said as "tomorrow".
+func FormatClock(at, now time.Time) string {
 	s := at.Format("15:04")
 	ay, am, ad := at.Date()
 	ny, nm, nd := now.Date()
@@ -51,9 +52,9 @@ func formatClock(at, now time.Time) string {
 	return s
 }
 
-// secondPerson turns the user's words into Alfred's: "call my mom" becomes
+// SecondPerson turns the user's words into Alfred's: "call my mom" becomes
 // "call your mom".
-func secondPerson(text string) string {
+func SecondPerson(text string) string {
 	words := strings.Fields(text)
 	for i, w := range words {
 		switch w {
@@ -73,4 +74,23 @@ func secondPerson(text string) string {
 		}
 	}
 	return strings.Join(words, " ")
+}
+
+// JoinOr joins "a", "b" and "c" as "a, b or c".
+func JoinOr(parts []string) string {
+	if len(parts) <= 1 {
+		return strings.Join(parts, "")
+	}
+	return strings.Join(parts[:len(parts)-1], ", ") + " or " + parts[len(parts)-1]
+}
+
+// FormatRemaining says time left, to the minute from 2 minutes up.
+func FormatRemaining(d time.Duration) string {
+	if d >= 2*time.Minute {
+		d = d.Round(time.Minute)
+	}
+	if d < time.Second {
+		return "less than a second"
+	}
+	return FormatDuration(d)
 }

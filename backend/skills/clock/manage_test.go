@@ -2,6 +2,7 @@ package clock
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -100,6 +101,35 @@ func TestCancelTimer(t *testing.T) {
 		}
 		if n := len(timers.list()); n != 0 {
 			t.Errorf("%d left", n)
+		}
+	})
+}
+
+func TestCancelAnswerNarrowsTheQuestion(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		r, timers, _ := newManaged(t)
+		say(t, r, "Set a timer for 10 minutes.")
+		say(t, r, "Set a timer for 1 hour.")
+		say(t, r, "Wake me up at 7 a.m.")
+		say(t, r, "Remind me to call my mom in 2 hours.")
+		resp, err := r.Dispatch(context.Background(), recognize(t, r, "Cancel the timer."))
+		if err != nil || resp.Ask == nil {
+			t.Fatalf("cancel the timer: %+v, %v; want a question", resp, err)
+		}
+		// "Both" means both timers, not the alarm and the reminder.
+		answer, err := assistant.SetSlot(resp.Ask.Intent, resp.Ask.Slot, "both of them")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp, err := r.Dispatch(context.Background(), answer); err != nil || resp.Text != "Cancelled all 2." {
+			t.Errorf("both of them: %q, %v; want Cancelled all 2.", resp.Text, err)
+		}
+		var left []Kind
+		for _, e := range timers.list() {
+			left = append(left, e.Kind)
+		}
+		if !slices.Equal(left, []Kind{KindAlarm, KindReminder}) && !slices.Equal(left, []Kind{KindReminder, KindAlarm}) {
+			t.Errorf("left: %v, want the alarm and the reminder", left)
 		}
 	})
 }

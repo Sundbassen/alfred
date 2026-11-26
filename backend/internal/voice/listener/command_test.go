@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"testing"
+	"testing/synctest"
 
 	"github.com/sundbassen/alfred/internal/voice"
 )
@@ -289,4 +290,65 @@ func TestNearMiss(t *testing.T) {
 	if len(h.proc.got) != 0 {
 		t.Error("a near miss must not start a command")
 	}
+}
+
+// TestFollowUpWithoutWakeWord: after Alfred asks something, the answer is
+// recorded without the wake word; with no answer it times out back to
+// listening.
+func TestFollowUpWithoutWakeWord(t *testing.T) {
+	h := newHarness(testCommandConfig())
+	h.ctrl.followUp()
+	h.feed(c4('V', 1), c4('V', 2), c4('S', 3), c4('S', 4)) // "the shopping list"
+	if len(h.proc.got) != 1 || h.ctrl.phase != phaseListening {
+		t.Fatalf("transcribed %d, phase %v; want the answer transcribed and back to listening", len(h.proc.got), h.ctrl.phase)
+	}
+	if len(h.act.fed) != 0 {
+		t.Errorf("activator fed %d chunks during the answer, want 0", len(h.act.fed))
+	}
+
+	h.ctrl.followUp()
+	h.feed(c4('S', 5), c4('S', 6), c4('S', 7))
+	if len(h.proc.got) != 1 || h.ctrl.phase != phaseListening {
+		t.Errorf("no answer: transcribed %d, phase %v; want a timeout back to listening", len(h.proc.got), h.ctrl.phase)
+	}
+
+	// A follow-up request while a command is recording changes nothing.
+	h.feed(c4('W', 8), c4('V', 9))
+	h.ctrl.followUp()
+	h.feed(c4('S', 10), c4('S', 11))
+	if len(h.proc.got) != 2 {
+		t.Errorf("transcribed %d, want the command in progress finished normally", len(h.proc.got))
+	}
+}
+
+// TestListenReachesTheCommandLoop: Service.Listen starts a command without
+// the wake word in the running command loop.
+func TestListenReachesTheCommandLoop(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(testCommandConfig())
+		s := &service{
+			audioChan:       make(chan []byte),
+			listenChan:      make(chan struct{}, 1),
+			transcriptChan:  make(chan voice.Transcript, 1),
+			silenceDetector: h.det,
+			transcriber:     h.proc,
+			wakeWord:        h.act,
+			command:         testCommandConfig(),
+			sink:            h.sink,
+			logger:          slog.New(slog.NewTextHandler(io.Discard, nil)),
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go s.commandLoop(ctx)
+
+		s.Listen()
+		synctest.Wait() // the loop took the request
+		for _, chunk := range [][]byte{c4('V', 1), c4('V', 2), c4('S', 3), c4('S', 4)} {
+			s.audioChan <- chunk
+		}
+		synctest.Wait()
+		if len(h.proc.got) != 1 {
+			t.Errorf("transcribed %d commands, want the answer without a wake word", len(h.proc.got))
+		}
+	})
 }

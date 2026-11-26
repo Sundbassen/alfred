@@ -141,7 +141,7 @@ func (c *commandController) handle(ctx context.Context, chunk []byte) {
 			if !c.assembler.Speaking() {
 				c.waitedBytes += len(chunk)
 				if c.waitedBytes >= c.config.timeoutBytes {
-					c.logger.Info("No command followed the wake word, listening again",
+					c.logger.Info("No command followed, listening again",
 						slog.Float64("waited_seconds", c.seconds(c.waitedBytes)))
 					c.listen()
 				}
@@ -177,6 +177,8 @@ func (c *commandController) handleListening(ctx context.Context, chunk []byte, i
 			c.lookback = tail(source, c.config.lookbackBytes)
 		}
 		c.startCommand()
+		c.logger.Info("Wake word activated, listening for command",
+			slog.Float64("activated_at_s", c.seconds(c.activatedAt)))
 
 	case reason != flushNone:
 		if c.sink != nil && c.listenPeak >= c.config.nearMissThreshold && c.config.nearMissThreshold > 0 {
@@ -200,6 +202,20 @@ func tail(data []byte, n int) []byte {
 	return append([]byte(nil), data[max(0, len(data)-n):]...)
 }
 
+// followUp starts recording a command without the wake word, e.g. the
+// answer to a question Alfred just asked. It does nothing while a command
+// is already being recorded.
+func (c *commandController) followUp() {
+	if c.phase != phaseListening {
+		return
+	}
+	c.lookback = nil
+	c.activator.Reset()
+	c.startCommand()
+	c.logger.Info("Listening for an answer without the wake word",
+		slog.Float64("activated_at_s", c.seconds(c.activatedAt)))
+}
+
 func (c *commandController) startCommand() {
 	c.phase = phaseCommand
 	c.firstChunk = true
@@ -211,8 +227,6 @@ func (c *commandController) startCommand() {
 		minUtteranceBytes: c.config.minBytes,
 		maxUtteranceBytes: c.config.maxBytes,
 	})
-	c.logger.Info("Wake word activated, listening for command",
-		slog.Float64("activated_at_s", c.seconds(c.activatedAt)))
 }
 
 func (c *commandController) finishCommand(ctx context.Context, command []byte) {

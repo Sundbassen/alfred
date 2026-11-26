@@ -18,8 +18,14 @@ import (
 // CancelTimer cancels a timer, alarm or reminder: "cancel the timer",
 // "cancel my 7 o'clock alarm", "cancel the reminder to call mom", "cancel
 // all timers". With one pending, "cancel it" is enough.
+//
+// Among is set when Alfred asked "Which one?": the ids of the entries it
+// listed, so the answer ("the 10 minute one", "all of them") picks among
+// those instead of starting over. It is not a slot; recognizers never fill
+// it.
 type CancelTimer struct {
-	What string `slot:"what,optional"`
+	What  string `slot:"what,optional"`
+	Among []int64
 }
 
 func (CancelTimer) IntentName() string { return "timer_cancel" }
@@ -74,13 +80,14 @@ var kindWords = map[string]Kind{
 var selectionFiller = map[string]bool{
 	"the": true, "my": true, "a": true, "an": true, "it": true, "that": true, "this": true, "one": true,
 	"for": true, "to": true, "about": true, "set": true, "of": true, "and": true, "any": true, "on": true,
+	"them": true,
 }
 
 func parseSelection(what string) selection {
 	var sel selection
 	for _, w := range strings.Fields(match.Normalize(what)) {
 		switch {
-		case w == "all" || w == "every" || w == "everything":
+		case w == "all" || w == "every" || w == "everything" || w == "both":
 			sel.all = true
 		case selectionFiller[w]:
 		default:
@@ -138,8 +145,12 @@ func (sel selection) noneText() string {
 func (h *handler) cancelTimer(ctx context.Context, i CancelTimer) (assistant.Response, error) {
 	now := h.now()
 	sel := parseSelection(i.What)
+	entries := h.timers.list()
+	if listed := slices.DeleteFunc(slices.Clone(entries), func(e entry) bool { return !slices.Contains(i.Among, e.ID) }); len(listed) > 0 {
+		entries = listed // the ones Alfred asked about, those still set
+	}
 	var all, matched []entry
-	for _, e := range h.timers.list() {
+	for _, e := range entries {
 		if len(sel.kinds) == 0 || slices.Contains(sel.kinds, e.Kind) {
 			all = append(all, e)
 		}
@@ -157,13 +168,17 @@ func (h *handler) cancelTimer(ctx context.Context, i CancelTimer) (assistant.Res
 		}
 	case len(matched) > 1 && !sel.all:
 		names := make([]string, len(matched))
+		ids := make([]int64, len(matched))
 		for i, e := range matched {
 			names[i] = e.name(now)
+			ids[i] = e.ID
 		}
-		return assistant.Response{}, &assistant.SpokenError{
+		// The answer ("the 10 minute one", "all of them") is a new What,
+		// among the ones just listed.
+		return assistant.Response{
 			Text: fmt.Sprintf("You have %d: %s. Which one?", len(matched), spoken.JoinAnd(names)),
-			Err:  errors.WithMessagef(fault.ErrInvalidValue, "%q matches %d timers", i.What, len(matched)),
-		}
+			Ask:  &assistant.Question{Intent: CancelTimer{Among: ids}, Slot: "what"},
+		}, nil
 	}
 
 	ids := make([]int64, len(matched))

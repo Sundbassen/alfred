@@ -25,6 +25,27 @@ type Intent interface {
 // serialized as is (e.g. by a future HTTP API).
 type Response struct {
 	Text string `json:"text"`
+	// Ask, if set, makes Text a question ("Which one?", "Should I create
+	// it?"): the next thing the user says answers it, without the wake
+	// word (see Question).
+	Ask *Question `json:"ask,omitempty"`
+}
+
+// Question is a follow-up question a handler asks. The answer completes
+// Intent, which is then dispatched like any other:
+//   - with a Slot, the answer's words fill that slot of the partly filled
+//     Intent ("Add to which list?" → "the shopping list");
+//   - without one, it is a yes/no question: yes dispatches Intent as it is,
+//     no drops it ("Should I create it?").
+//
+// Saying a whole other command instead of answering runs that command.
+//
+// The question is kept on the server side by whoever dispatches (e.g.
+// app.Assistant, for one conversation); only Slot is serialized, so a
+// client knows an answer is expected but can't rebuild Intent itself.
+type Question struct {
+	Intent Intent `json:"-"`
+	Slot   string `json:"slot,omitempty"`
 }
 
 // Spec describes an intent to recognizers.

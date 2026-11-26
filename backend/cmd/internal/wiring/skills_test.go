@@ -236,3 +236,37 @@ func TestHelpAndRepeat(t *testing.T) {
 		t.Errorf("repeat: %q, want the help again", got)
 	}
 }
+
+func TestFollowUpQuestion(t *testing.T) {
+	r := assistant.NewRouter()
+	logger := slog.New(slog.DiscardHandler)
+	cfg := Config{IntentModel: IntentModelConfig{Server: filepath.Join(t.TempDir(), "llama-server"), ModelFile: "missing.gguf"}}
+	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), logger); err != nil {
+		t.Fatal(err)
+	}
+	a, err := NewAssistant(r, cfg, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	say := func(transcript string) *app.Reply {
+		t.Helper()
+		reply, err := a.Respond(context.Background(), transcript)
+		if err != nil {
+			t.Fatalf("%q: %v", transcript, err)
+		}
+		return reply
+	}
+	say("Set a timer for 10 minutes.")
+	say("Set a timer for 1 hour.")
+	if reply := say("Cancel the timer."); !reply.Listen ||
+		reply.Text != "You have 2: your timer for 10 minutes and your timer for 1 hour. Which one?" {
+		t.Fatalf("ambiguous cancel: %+v", reply)
+	}
+	if reply := say("The 10 minute one."); reply.Text != "Cancelled your timer for 10 minutes." {
+		t.Errorf("answer: %+v", reply)
+	}
+	if reply := say("How much time is left?"); reply.Text != "Your timer for 1 hour has 1 hour left." {
+		t.Errorf("left: %+v", reply)
+	}
+}

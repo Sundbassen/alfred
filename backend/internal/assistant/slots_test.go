@@ -118,3 +118,13 @@ func TestHandleChecksPhraseSlots(t *testing.T) {
 		}()
 	}
 }
+
+func TestSetSlot(t *testing.T) {
+	got, err := SetSlot(remind{When: "10 minutes"}, "message", "call mom")
+	if err != nil || got != (remind{When: "10 minutes", Message: "call mom"}) {
+		t.Errorf("SetSlot = %#v, %v", got, err)
+	}
+	if _, err := SetSlot(remind{}, "room", "kitchen"); !errors.Is(err, fault.ErrInvalidValue) {
+		t.Errorf("unknown slot: %v", err)
+	}
+}

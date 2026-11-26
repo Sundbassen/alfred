@@ -112,10 +112,24 @@ func TestAskTime(t *testing.T) {
 
 func TestAskDate(t *testing.T) {
 	r := assistant.NewRouter()
+	// Tuesday 24 November.
 	register(r, NewTimers(&fakeAnnouncer{}, newFakeStore(), nil), func() time.Time { return time.Date(2026, 11, 24, 9, 5, 0, 0, time.Local) })
-	resp, err := r.Dispatch(context.Background(), recognize(t, r, "What day is it today?"))
-	if want := "It's Tuesday, November 24."; err != nil || resp.Text != want {
-		t.Errorf("%q, %v; want %q", resp.Text, err, want)
+	for transcript, want := range map[string]string{
+		"What day is it today?":      "It's Tuesday, November 24.",
+		"What date is it?":           "It's Tuesday, November 24.",
+		"What's today's date?":       "It's Tuesday, November 24.",
+		"What's the date tomorrow?":  "That's Wednesday, November 25.",
+		"What day is tomorrow?":      "That's Wednesday, November 25.",
+		"What's the date on Friday?": "That's Friday, November 27.",
+	} {
+		resp, err := r.Dispatch(context.Background(), recognize(t, r, transcript))
+		if err != nil || resp.Text != want {
+			t.Errorf("%q: %q, %v; want %q", transcript, resp.Text, err, want)
+		}
+	}
+	_, err := r.Dispatch(context.Background(), recognize(t, r, "What's the date of the concert?"))
+	if got, want := assistant.SpokenText(err), "Sorry, I can only tell the date for the coming week."; got != want {
+		t.Errorf("unknown day: %q, want %q", got, want)
 	}
 }
 

@@ -16,6 +16,10 @@ type rally struct{}
 
 func (rally) IntentName() string { return "rally" }
 
+type miss struct{}
+
+func (miss) IntentName() string { return "miss" }
+
 func newRouter() (*assistant.Router, *History) {
 	r := assistant.NewRouter()
 	h := NewHistory()
@@ -24,6 +28,10 @@ func newRouter() (*assistant.Router, *History) {
 		func(context.Context, ping) (assistant.Response, error) { return assistant.Response{Text: "Pong."}, nil })
 	assistant.Handle(r, assistant.Spec{Phrases: []string{"ping twice"}, Help: "play table tennis."},
 		func(context.Context, rally) (assistant.Response, error) { return assistant.Response{}, nil })
+	assistant.Handle(r, assistant.Spec{Phrases: []string{"miss"}},
+		func(context.Context, miss) (assistant.Response, error) {
+			return assistant.Response{}, &assistant.SpokenError{Text: "I missed."}
+		})
 	Register(r, h)
 	return r, h
 }
@@ -31,24 +39,55 @@ func newRouter() (*assistant.Router, *History) {
 func TestRepeat(t *testing.T) {
 	r, _ := newRouter()
 	ctx := context.Background()
-	if resp, _ := r.Dispatch(ctx, Repeat{}); resp.Text != "I haven't said anything yet." {
-		t.Errorf("nothing said: %q", resp.Text)
+	say := func(intent assistant.Intent) string {
+		t.Helper()
+		resp, err := r.Dispatch(ctx, intent)
+		if err != nil {
+			t.Fatalf("%s: %v", intent.IntentName(), err)
+		}
+		return resp.Text
 	}
-	r.Dispatch(ctx, ping{})
-	r.Dispatch(ctx, NeverMind{}) // silent replies are not remembered
-	if resp, _ := r.Dispatch(ctx, Repeat{}); resp.Text != "Pong." {
-		t.Errorf("repeat: %q, want Pong.", resp.Text)
+	if got := say(Repeat{}); got != "I haven't said anything yet." {
+		t.Errorf("nothing said: %q", got)
 	}
-	if resp, _ := r.Dispatch(ctx, Repeat{}); resp.Text != "Pong." {
-		t.Errorf("repeat twice: %q, want Pong.", resp.Text)
+	say(ping{})
+	say(NeverMind{}) // silent replies are not remembered
+	if got := say(Repeat{}); got != "Pong." {
+		t.Errorf("repeat: %q, want Pong.", got)
+	}
+	if got := say(Repeat{}); got != "Pong." {
+		t.Errorf("repeat twice: %q, want Pong.", got)
+	}
+	// What was said about a failure is remembered too.
+	if _, err := r.Dispatch(ctx, miss{}); assistant.SpokenText(err) != "I missed." {
+		t.Fatalf("miss: %v", err)
+	}
+	if got := say(Repeat{}); got != "I missed." {
+		t.Errorf("repeat after an error: %q, want I missed.", got)
 	}
 }
 
 func TestHelpListsSkills(t *testing.T) {
 	r, _ := newRouter()
 	resp, err := r.Dispatch(context.Background(), Help{})
-	if want := "I can answer pings and play table tennis."; err != nil || resp.Text != want {
+	if want := "I can answer pings, and play table tennis."; err != nil || resp.Text != want {
 		t.Errorf("help: %q, %v; want %q", resp.Text, err, want)
+	}
+}
+
+func TestJoinHelp(t *testing.T) {
+	for _, tc := range []struct {
+		helps []string
+		want  string
+	}{
+		{[]string{"a"}, "a"},
+		{[]string{"a", "b"}, "a, and b"},
+		{[]string{"tell you the time and date", "set timers and reminders", "play music"},
+			"tell you the time and date, set timers and reminders, and play music"},
+	} {
+		if got := joinHelp(tc.helps); got != tc.want {
+			t.Errorf("joinHelp(%q) = %q, want %q", tc.helps, got, tc.want)
+		}
 	}
 }
 
@@ -63,10 +102,11 @@ func TestPhrases(t *testing.T) {
 	r, _ := newRouter()
 	m := match.New(r.Intents())
 	for transcript, want := range map[string]string{
-		"Never mind.":      "never_mind",
-		"Cancel.":          "never_mind",
-		"Say that again?":  "repeat",
-		"What can you do?": "help",
+		"Never mind.":          "never_mind",
+		"Cancel.":              "never_mind",
+		"Say that again?":      "repeat",
+		"Can you repeat that?": "repeat",
+		"What can you do?":     "help",
 	} {
 		if rec, err := m.Recognize(context.Background(), transcript); err != nil || rec.Intent != want {
 			t.Errorf("%q: %+v, %v; want %s", transcript, rec, err, want)

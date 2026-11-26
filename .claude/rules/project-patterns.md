@@ -41,7 +41,7 @@ internal/  may import only internal/       (plus the standard library and third-
    - intent types: concrete structs with a value-receiver `IntentName()`; parameters are fields;
    - handlers: `func(ctx, I) (assistant.Response, error)`;
    - the interfaces the handlers need;
-   - `Register(r *assistant.Router, deps...)`, which calls `assistant.Handle` for each intent with a `Spec` (description and example phrases).
+   - `Register(r *assistant.Router, deps...)`, which calls `assistant.Handle` for each intent with a `Spec` (description and example phrases), with `Help` set on the skill's main intent so "what can you do" mentions it (a short phrase without commas, e.g. "set timers and reminders").
 2. Add one line to `cmd/internal/wiring/skills.go`.
 
 **Add a provider:**

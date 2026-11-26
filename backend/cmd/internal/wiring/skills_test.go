@@ -198,7 +198,7 @@ func TestHelpAndRepeat(t *testing.T) {
 	if err := RegisterSkills(context.Background(), r, Config{}, testOutput(), testDB(t), slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatal(err)
 	}
-	want := "I can tell you the time and the date and set timers, alarms and reminders."
+	want := "I can tell you the time and date, and set timers and reminders."
 	if got := ask(t, r, "What can you do?"); got != want {
 		t.Errorf("help: %q, want %q", got, want)
 	}

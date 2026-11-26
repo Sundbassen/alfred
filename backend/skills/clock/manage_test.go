@@ -154,6 +154,9 @@ func TestCancelRingingTimer(t *testing.T) {
 		if got := say(t, r, "Cancel the timer."); got != "Cancelled your timer for 1 minute." {
 			t.Errorf("%q", got)
 		}
+		if n := len(timers.list()); n != 0 {
+			t.Errorf("%d entries right after cancelling, want none", n)
+		}
 		time.Sleep(time.Minute)
 		synctest.Wait()
 		if chimes, _ := out.counts(); chimes != 1 || len(timers.list()) != 0 {
@@ -174,6 +177,9 @@ func TestSnooze(t *testing.T) {
 		if got := say(t, r, "Snooze."); got != "Snoozed for 9 minutes." {
 			t.Errorf("snooze: %q", got)
 		}
+		if l := timers.list(); len(l) != 1 || l[0].ringing() {
+			t.Errorf("right after snoozing: %d entries (ringing: %v), want one pending", len(l), len(l) == 1 && l[0].ringing())
+		}
 		time.Sleep(9*time.Minute - time.Second)
 		synctest.Wait()
 		if chimes, _ := out.counts(); chimes != 1 {
@@ -189,6 +195,11 @@ func TestSnooze(t *testing.T) {
 		}
 		if n := len(timers.list()); n != 1 {
 			t.Errorf("%d entries, want the snoozed one", n)
+		}
+		for _, bad := range []string{"Snooze for 7.", "Snooze for 30 hours."} {
+			if got := say(t, r, bad); got != "Sorry, how long should I snooze?" {
+				t.Errorf("%q: %q", bad, got)
+			}
 		}
 	})
 }
@@ -215,6 +226,13 @@ func TestExtendTimer(t *testing.T) {
 		if got := say(t, r, "Add 2 minutes to the 1 hour timer."); got != "Your timer now has 1 hour and 2 minutes left." {
 			t.Errorf("by duration: %q", got)
 		}
+		if got := say(t, r, "Add 2 minutes to the 5 minute timer."); got != "Sorry, I couldn't find that one. "+
+			"Your timer for 15 minutes has 14 minutes left. Your timer for 1 hour and 2 minutes has 1 hour and 2 minutes left." {
+			t.Errorf("no match: %q", got)
+		}
+		if got := say(t, r, "Add 24 hours to the 15 minute timer."); got != "Sorry, I can only set timers for up to 24 hours." {
+			t.Errorf("over 24 hours: %q", got)
+		}
 
 		// Extending a ringing timer: the time counts from now.
 		timers.Close()
@@ -224,6 +242,9 @@ func TestExtendTimer(t *testing.T) {
 		synctest.Wait()
 		if got := say(t, r, "Add 3 minutes to the timer."); got != "Your timer now has 3 minutes left." {
 			t.Errorf("ringing: %q", got)
+		}
+		if got := say(t, r, "How much time is left?"); got != "Your timer for 3 minutes has 3 minutes left." {
+			t.Errorf("after extending a ringing timer: %q", got)
 		}
 		time.Sleep(3 * time.Minute)
 		synctest.Wait()

@@ -69,6 +69,27 @@ func TestRoundTrip(t *testing.T) {
 	}
 }
 
+func TestIDsAreNotReused(t *testing.T) {
+	// A snoozed timer is saved again while its old id may still be in use
+	// in memory, so a deleted row's id must not come back.
+	ctx := context.Background()
+	s := newStore(t)
+	first, err := s.Add(ctx, clock.Timer{Kind: clock.KindTimer, At: time.Now(), Duration: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Delete(ctx, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.Add(ctx, clock.Timer{Kind: clock.KindTimer, At: time.Now(), Duration: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.ID <= first.ID {
+		t.Errorf("second id %d, want above the deleted %d", second.ID, first.ID)
+	}
+}
+
 func TestUnknownKind(t *testing.T) {
 	ctx := context.Background()
 	s := newStore(t)

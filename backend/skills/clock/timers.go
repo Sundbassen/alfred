@@ -143,7 +143,9 @@ func (t *Timers) fire(id int64) {
 	t.ring(ctx, e)
 
 	t.mu.Lock()
-	delete(t.entries, id)
+	if t.entries[id] == e { // not cancelled and replaced meanwhile
+		delete(t.entries, id)
+	}
 	t.mu.Unlock()
 }
 
@@ -235,7 +237,9 @@ func (t *Timers) cancel(ids ...int64) {
 }
 
 // snooze stops every ringing timer, alarm and reminder and sets it again,
-// d from now. It returns how many it snoozed.
+// d from now. It returns how many it snoozed. Each is saved again before
+// the ringing one is cancelled, so a failed save leaves it ringing rather
+// than lost (ids are never reused, see the timers migration).
 func (t *Timers) snooze(ctx context.Context, d time.Duration) (int, error) {
 	t.mu.Lock()
 	var ringing []Timer
@@ -246,18 +250,21 @@ func (t *Timers) snooze(ctx context.Context, d time.Duration) (int, error) {
 	}
 	t.mu.Unlock()
 	at := time.Now().Add(d)
-	for _, tm := range ringing {
-		t.cancel(tm.ID)
+	for i, tm := range ringing {
+		old := tm.ID
 		tm.At = at
 		if _, err := t.add(ctx, tm); err != nil {
-			return 0, err
+			return i, err
 		}
+		t.cancel(old)
 	}
 	return len(ringing), nil
 }
 
 // extend adds d to a timer: to when it goes off, or, if it is ringing, d
-// from now. It returns the timer as rescheduled.
+// from now (it is then a timer for d: "your timer for 3 minutes"). It
+// returns the timer as rescheduled. The new one is saved before the old
+// one is cancelled, so a failed save keeps the old one.
 func (t *Timers) extend(ctx context.Context, id int64, d time.Duration) (*entry, error) {
 	t.mu.Lock()
 	e, ok := t.entries[id]
@@ -270,14 +277,19 @@ func (t *Timers) extend(ctx context.Context, id int64, d time.Duration) (*entry,
 	t.mu.Unlock()
 
 	tm.At = tm.At.Add(d)
-	if ringing {
+	switch {
+	case ringing:
 		tm.At = time.Now().Add(d)
-	}
-	if tm.Duration > 0 {
+		tm.Duration = d
+	case tm.Duration > 0:
 		tm.Duration += d
 	}
+	e, err := t.add(ctx, tm)
+	if err != nil {
+		return nil, err
+	}
 	t.cancel(id)
-	return t.add(ctx, tm)
+	return e, nil
 }
 
 // Close stops every timer for shutdown: pending ones stay in the store, to

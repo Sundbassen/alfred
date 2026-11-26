@@ -86,6 +86,7 @@ func TestTranscriptsReachThePlayer(t *testing.T) {
 		{"What's playing?", fakePlayer{item: Item{Title: "One More Time", Artist: "Daft Punk"}}, "now",
 			"This is One More Time by Daft Punk."},
 		{"What song is this?", fakePlayer{}, "now", "Nothing is playing."},
+		{"What's playing?", fakePlayer{item: Item{Title: "Radio Paradise"}}, "now", "This is Radio Paradise."},
 		{"Shuffle.", fakePlayer{}, "shuffle on", "Shuffle on."},
 		{"Turn off shuffle.", fakePlayer{}, "shuffle off", "Shuffle off."},
 	}
@@ -112,6 +113,13 @@ func TestNotFoundIsSpoken(t *testing.T) {
 	_, err = respond(t, p, "play a radio with daft punk and nobody")
 	if got, want := assistant.SpokenText(err), "I couldn't find all of daft punk and nobody."; got != want {
 		t.Errorf("SpokenText = %q, want %q", got, want)
+	}
+}
+
+func TestNowPlayingError(t *testing.T) {
+	p := &fakePlayer{err: errors.WithMessage(fault.ErrServiceUnavailable, "spotify down")}
+	if _, err := respond(t, p, "What's playing?"); !errors.Is(err, fault.ErrServiceUnavailable) {
+		t.Errorf("error = %v, want fault.ErrServiceUnavailable", err)
 	}
 }
 
@@ -169,6 +177,34 @@ func TestSleepTimer(t *testing.T) {
 		synctest.Wait()
 		if strings.Join(p.calls, ",") != "pause" {
 			t.Errorf("after 45 minutes: %q, want pause", p.calls)
+		}
+		if reply, err := a.Respond(context.Background(), "Cancel the sleep timer."); err != nil || reply.Text != "There is no sleep timer." {
+			t.Errorf("cancel after it went off: %+v, %v", reply, err)
+		}
+	})
+}
+
+func TestSleepTimerCancelled(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		p := &fakePlayer{}
+		r := assistant.NewRouter()
+		Register(r, p, nil)
+		a := app.NewAssistant(r, match.New(r.Intents()))
+		for _, say := range []string{"Stop the music at 23:00.", "Cancel the sleep timer."} {
+			if _, err := a.Respond(context.Background(), say); err != nil {
+				t.Fatal(err)
+			}
+		}
+		// Pausing by hand also cancels it.
+		for _, say := range []string{"Stop the music in 10 minutes.", "Pause."} {
+			if _, err := a.Respond(context.Background(), say); err != nil {
+				t.Fatal(err)
+			}
+		}
+		time.Sleep(24 * time.Hour)
+		synctest.Wait()
+		if strings.Join(p.calls, ",") != "pause" {
+			t.Errorf("calls %q, want only the manual pause", p.calls)
 		}
 	})
 }

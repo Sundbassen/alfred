@@ -64,8 +64,8 @@ func registerManage(r *assistant.Router, h *handler) {
 	}, h.snooze)
 	assistant.Handle(r, assistant.Spec{
 		Description: "Add time to a timer",
-		// The phrases end in "timer", so they win over the lists' "add
-		// {items} to the {list}".
+		// The phrases end in "timer", so they should win over a list
+		// skill's "add {items} to the {list}" (more literal words).
 		Phrases: []string{
 			"add {amount} to the timer", "add {amount} to my timer",
 			"add {amount} to the {what} timer", "add {amount} to my {what} timer",
@@ -284,10 +284,13 @@ func (h *handler) snooze(ctx context.Context, i Snooze) (assistant.Response, err
 	d := snoozeFor
 	if i.When != "" {
 		w, err := spoken.ParseWhen(i.When, h.now())
-		if err != nil {
-			return assistant.Response{}, err
+		if err != nil || w.Duration <= 0 || w.Duration > maxDuration {
+			return assistant.Response{}, &assistant.SpokenError{
+				Text: "Sorry, how long should I snooze?",
+				Err:  errors.WithMessagef(fault.ErrInvalidValue, "snooze for %q", i.When),
+			}
 		}
-		d = w.At.Sub(h.now())
+		d = w.Duration
 	}
 	n, err := h.timers.snooze(ctx, d)
 	if err != nil {
@@ -316,15 +319,23 @@ func (h *handler) extendTimer(ctx context.Context, i ExtendTimer) (assistant.Res
 	}
 	sel := parseSelection(i.What)
 	sel.kinds = []Kind{KindTimer}
-	var matched []entry
+	var timers, matched []entry
 	for _, e := range h.timers.list() {
+		if e.Kind == KindTimer {
+			timers = append(timers, e)
+		}
 		if sel.matches(e, now) {
 			matched = append(matched, e)
 		}
 	}
 	switch {
-	case len(matched) == 0:
+	case len(timers) == 0:
 		return assistant.Response{Text: "You have no timers."}, nil
+	case len(matched) == 0:
+		return assistant.Response{}, &assistant.SpokenError{
+			Text: "Sorry, I couldn't find that one. " + listText(timers, now),
+			Err:  errors.WithMessagef(fault.ErrNotFound, "no timer matches %q", i.What),
+		}
 	case len(matched) > 1:
 		names := make([]string, len(matched))
 		for i, e := range matched {
@@ -334,6 +345,12 @@ func (h *handler) extendTimer(ctx context.Context, i ExtendTimer) (assistant.Res
 			Text: fmt.Sprintf("You have %d: %s. Which one?", len(matched), spoken.JoinAnd(names)),
 			Ask:  &assistant.Question{Intent: ExtendTimer{Amount: i.Amount}, Slot: "what"},
 		}, nil
+	}
+	if left := max(matched[0].At.Sub(now), 0) + w.Duration; left > maxDuration {
+		return assistant.Response{}, &assistant.SpokenError{
+			Text: "Sorry, I can only set timers for up to 24 hours.",
+			Err:  errors.WithMessagef(fault.ErrInvalidValue, "extended timer %s over %s", left, maxDuration),
+		}
 	}
 	e, err := h.timers.extend(ctx, matched[0].ID, w.Duration)
 	if err != nil {

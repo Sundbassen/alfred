@@ -197,8 +197,9 @@ func (s *Spotify) Previous(ctx context.Context, t music.Target) error {
 	return s.playerCall(ctx, t, http.MethodPost, "/me/player/previous", nil)
 }
 
-// NowPlaying returns the track (or episode) playing on Spotify;
-// fault.ErrNotFound when nothing is.
+// NowPlaying returns the track playing on the account, on whichever device
+// (the target is not checked); fault.ErrNotFound when nothing is, or when it
+// is a podcast episode (Spotify reports no item for those unless asked).
 func (s *Spotify) NowPlaying(ctx context.Context, _ music.Target) (music.Item, error) {
 	var res struct {
 		IsPlaying bool   `json:"is_playing"`

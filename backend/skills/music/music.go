@@ -58,7 +58,7 @@ type NowPlaying struct{}
 
 func (NowPlaying) IntentName() string { return "music_now" }
 
-// Shuffle is "shuffle" / "shuffle off".
+// Shuffle is "shuffle" / "shuffle on".
 type Shuffle struct{}
 
 func (Shuffle) IntentName() string { return "music_shuffle" }
@@ -74,6 +74,11 @@ type Sleep struct {
 }
 
 func (Sleep) IntentName() string { return "music_sleep" }
+
+// CancelSleep is "cancel the sleep timer".
+type CancelSleep struct{}
+
+func (CancelSleep) IntentName() string { return "music_sleep_cancel" }
 
 // Target says where to play. The zero value means this speaker. Later,
 // with several Alfred speakers in a home, Speaker names another one
@@ -153,15 +158,11 @@ func Register(r *assistant.Router, p Player, logger *slog.Logger) {
 	assistant.Handle(r, assistant.Spec{
 		Description: "Turn shuffle on",
 		Phrases:     []string{"shuffle", "shuffle on", "turn on shuffle", "shuffle the music"},
-	}, func(ctx context.Context, _ Shuffle) (assistant.Response, error) {
-		return ack("Shuffle on.", h.player.SetShuffle(ctx, Target{}, true))
-	})
+	}, h.shuffle)
 	assistant.Handle(r, assistant.Spec{
 		Description: "Turn shuffle off",
 		Phrases:     []string{"shuffle off", "turn off shuffle", "stop shuffling"},
-	}, func(ctx context.Context, _ NoShuffle) (assistant.Response, error) {
-		return ack("Shuffle off.", h.player.SetShuffle(ctx, Target{}, false))
-	})
+	}, h.noShuffle)
 	assistant.Handle(r, assistant.Spec{
 		Description: "Stop the music after a while or at a time: a sleep timer",
 		Phrases: []string{
@@ -169,6 +170,10 @@ func Register(r *assistant.Router, p Player, logger *slog.Logger) {
 			"stop the music at {when}", "sleep timer {when}",
 		},
 	}, h.sleep)
+	assistant.Handle(r, assistant.Spec{
+		Description: "Cancel the sleep timer",
+		Phrases:     []string{"cancel the sleep timer", "turn off the sleep timer", "no sleep timer"},
+	}, h.cancelSleep)
 }
 
 type handler struct {
@@ -195,8 +200,9 @@ func (h *handler) nowPlaying(ctx context.Context, _ NowPlaying) (assistant.Respo
 }
 
 // sleep pauses the music after the given time. It is kept in memory only:
-// the music doesn't resume after a restart either. A new one replaces the
-// pending one.
+// the music doesn't resume after a restart either, and at shutdown it just
+// goes with the process. A new one replaces the pending one; pausing the
+// music cancels it.
 func (h *handler) sleep(ctx context.Context, in Sleep) (assistant.Response, error) {
 	now := h.now()
 	w, err := spoken.ParseWhen(in.When, now)
@@ -207,7 +213,13 @@ func (h *handler) sleep(ctx context.Context, in Sleep) (assistant.Response, erro
 	if h.sleepTimer != nil {
 		h.sleepTimer.Stop()
 	}
-	h.sleepTimer = time.AfterFunc(w.At.Sub(now), func() {
+	var timer *time.Timer
+	timer = time.AfterFunc(w.At.Sub(now), func() {
+		h.mu.Lock()
+		if h.sleepTimer == timer {
+			h.sleepTimer = nil
+		}
+		h.mu.Unlock()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := h.player.Pause(ctx, Target{}); err != nil {
@@ -216,6 +228,7 @@ func (h *handler) sleep(ctx context.Context, in Sleep) (assistant.Response, erro
 		}
 		h.logger.Info("Sleep timer paused the music")
 	})
+	h.sleepTimer = timer
 	h.mu.Unlock()
 	if w.Duration > 0 {
 		return assistant.Response{Text: "OK, I'll stop the music in " + spoken.FormatDuration(w.Duration) + "."}, nil
@@ -255,8 +268,37 @@ func (h *handler) mix(ctx context.Context, in Mix) (assistant.Response, error) {
 	return assistant.Response{Text: "Playing a mix of " + joinNames(resolved) + "."}, nil
 }
 
+// stopSleep cancels the pending sleep timer, reporting whether there was
+// one.
+func (h *handler) stopSleep() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.sleepTimer == nil {
+		return false
+	}
+	h.sleepTimer.Stop()
+	h.sleepTimer = nil
+	return true
+}
+
+func (h *handler) cancelSleep(context.Context, CancelSleep) (assistant.Response, error) {
+	if !h.stopSleep() {
+		return assistant.Response{Text: "There is no sleep timer."}, nil
+	}
+	return assistant.Response{Text: "Sleep timer cancelled."}, nil
+}
+
 func (h *handler) pause(ctx context.Context, _ Pause) (assistant.Response, error) {
+	h.stopSleep()
 	return ack("Paused.", h.player.Pause(ctx, Target{}))
+}
+
+func (h *handler) shuffle(ctx context.Context, _ Shuffle) (assistant.Response, error) {
+	return ack("Shuffle on.", h.player.SetShuffle(ctx, Target{}, true))
+}
+
+func (h *handler) noShuffle(ctx context.Context, _ NoShuffle) (assistant.Response, error) {
+	return ack("Shuffle off.", h.player.SetShuffle(ctx, Target{}, false))
 }
 
 func (h *handler) resume(ctx context.Context, _ Resume) (assistant.Response, error) {

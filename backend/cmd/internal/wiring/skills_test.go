@@ -270,3 +270,26 @@ func TestFollowUpQuestion(t *testing.T) {
 		t.Errorf("left: %+v", reply)
 	}
 }
+
+func TestSleepTimerPhrasesBeatClockCancel(t *testing.T) {
+	token := filepath.Join(t.TempDir(), "token.json")
+	if err := musicservice.SaveToken(token, &oauth2.Token{AccessToken: "a", RefreshToken: "r"}); err != nil {
+		t.Fatal(err)
+	}
+	r := assistant.NewRouter()
+	cfg := Config{Spotify: musicservice.SpotifyConfig{ClientID: "cid", TokenFile: token}}
+	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), slog.New(slog.DiscardHandler)); err != nil {
+		t.Fatal(err)
+	}
+	m := match.New(r.Intents())
+	for transcript, want := range map[string]string{
+		"Cancel the sleep timer.":       "music_sleep_cancel",
+		"Cancel the timer.":             "timer_cancel",
+		"Add 5 minutes to the timer.":   "timer_extend",
+		"Stop the music in 20 minutes.": "music_sleep",
+	} {
+		if rec, err := m.Recognize(context.Background(), transcript); err != nil || rec.Intent != want {
+			t.Errorf("%q: %+v, %v; want %s", transcript, rec, err, want)
+		}
+	}
+}

@@ -252,9 +252,9 @@ func TestSlotsKeepCommas(t *testing.T) {
 		t.Errorf("slots = %q", rec.Slots)
 	}
 	for text, want := range map[string]string{
-		"Add milk,eggs and bread to the shopping list.":   "milk, eggs and bread",
+		"Add milk,eggs and bread to the shopping list.":     "milk, eggs and bread",
 		"Add milk um, eggs and bread to the shopping list.": "milk, eggs and bread",
-		"Add milk; eggs to the shopping list.":            "milk, eggs",
+		"Add milk; eggs to the shopping list.":              "milk, eggs",
 	} {
 		if rec, err := m.Recognize(context.Background(), text); err != nil || rec.Slots["items"] != want {
 			t.Errorf("%q: items %q, %v; want %q", text, rec.Slots["items"], err, want)

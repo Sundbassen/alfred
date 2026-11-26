@@ -388,33 +388,41 @@ func tokenize(text string) (tokens []string, commaAfter []bool) {
 	// Whisper writes "five percent" as "5%".
 	text = strings.ReplaceAll(text, "%", " percent")
 
-	for _, word := range strings.Fields(text) {
-		comma := strings.HasSuffix(strings.TrimRight(word, ".!?"), ",") || strings.HasSuffix(word, ";")
-		word = strings.TrimFunc(word, func(r rune) bool {
-			return r != '\'' && !unicode.IsLetter(r) && !unicode.IsDigit(r)
-		})
-		if expanded, ok := contractions[word]; ok {
-			word = expanded
-		}
-		word = strings.Map(func(r rune) rune {
-			if unicode.IsLetter(r) || unicode.IsDigit(r) || r == ' ' {
-				return r
-			}
-			if unicode.IsPunct(r) || unicode.IsSymbol(r) {
-				return ' '
-			}
-			return r
-		}, word)
-		added := false
-		for _, w := range strings.Fields(word) {
-			if !ignored[w] {
-				tokens = append(tokens, w)
-				commaAfter = append(commaAfter, false)
-				added = true
-			}
-		}
-		if comma && added {
+	// markComma notes a comma after the last kept token, also when the word
+	// before the comma was dropped ("milk um, eggs").
+	markComma := func() {
+		if len(commaAfter) > 0 {
 			commaAfter[len(commaAfter)-1] = true
+		}
+	}
+	for _, field := range strings.Fields(text) {
+		// Split at commas inside the word too ("milk,eggs").
+		parts := strings.Split(strings.ReplaceAll(field, ";", ","), ",")
+		for i, word := range parts {
+			word = strings.TrimFunc(word, func(r rune) bool {
+				return r != '\'' && !unicode.IsLetter(r) && !unicode.IsDigit(r)
+			})
+			if expanded, ok := contractions[word]; ok {
+				word = expanded
+			}
+			word = strings.Map(func(r rune) rune {
+				if unicode.IsLetter(r) || unicode.IsDigit(r) || r == ' ' {
+					return r
+				}
+				if unicode.IsPunct(r) || unicode.IsSymbol(r) {
+					return ' '
+				}
+				return r
+			}, word)
+			for _, w := range strings.Fields(word) {
+				if !ignored[w] {
+					tokens = append(tokens, w)
+					commaAfter = append(commaAfter, false)
+				}
+			}
+			if i < len(parts)-1 {
+				markComma()
+			}
 		}
 	}
 	return tokens, commaAfter

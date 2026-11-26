@@ -8,6 +8,7 @@ package lists
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -86,18 +87,19 @@ type Clear struct {
 
 func (Clear) IntentName() string { return "list_clear" }
 
-// Delete is "delete the packing list".
+// Delete is "delete the packing list"; "delete the list" means the one just
+// used, or the only one.
 type Delete struct {
-	List      string `slot:"list"`
+	List      string `slot:"list,optional"`
 	Confirmed bool
 }
 
 func (Delete) IntentName() string { return "list_delete" }
 
-// ListLists is "what lists do I have".
-type ListLists struct{}
+// All is "what lists do I have".
+type All struct{}
 
-func (ListLists) IntentName() string { return "lists" }
+func (All) IntentName() string { return "list_all" }
 
 // recent is how long "add milk" without a list goes to the list just used.
 const recent = 5 * time.Minute
@@ -117,34 +119,47 @@ func register(r *assistant.Router, store Store, now func() time.Time) {
 		},
 		Help: "keep lists",
 	}, h.create)
+	// Every phrase says "list" (or "it", the list just used): short ones
+	// such as "add {items}" or "read the {list}" would catch other skills'
+	// commands ("add 5 minutes", "read the news") as full template matches.
 	assistant.Handle(r, assistant.Spec{
 		Description: "Add one or more items to a list",
 		Phrases: []string{
-			"add {items} to the {list}", "add {items} to my {list}", "add {items} to {list}",
-			"put {items} on the {list}", "put {items} on my {list}", "add {items}",
+			"add {items} to the {list} list", "add {items} to my {list} list", "add {items} to {list} list",
+			"put {items} on the {list} list", "put {items} on my {list} list",
+			"add {items} to the list", "add {items} to my list", "add {items} to it",
+			"put {items} on the list", "put {items} on my list",
 		},
 	}, h.add)
 	assistant.Handle(r, assistant.Spec{
 		Description: "Remove one or more items from a list",
 		Phrases: []string{
-			"remove {items} from the {list}", "remove {items} from my {list}",
-			"take {items} off the {list}", "take {items} off my {list}",
-			"cross {items} off the {list}", "cross {items} off my {list}", "remove {items}",
+			"remove {items} from the {list} list", "remove {items} from my {list} list",
+			"take {items} off the {list} list", "take {items} off my {list} list",
+			"cross {items} off the {list} list", "cross {items} off my {list} list",
+			"remove {items} from the list", "remove {items} from my list", "remove {items} from it",
+			"take {items} off the list", "cross {items} off the list",
 		},
 	}, h.remove)
 	assistant.Handle(r, assistant.Spec{
 		Description: "Read out what is on a list",
-		Phrases:     []string{"what is on the {list}", "what is on my {list}", "read the {list}", "read my {list}"},
+		Phrases: []string{
+			"what is on the list", "read the list", "what is on my list", "read my list",
+			"what is on the {list} list", "what is on my {list} list", "read the {list} list", "read my {list} list",
+		},
 	}, h.read)
 	assistant.Handle(r, assistant.Spec{
 		Description: "Remove every item from a list",
-		Phrases:     []string{"clear the {list}", "clear my {list}", "empty the {list}", "empty my {list}"},
+		Phrases: []string{
+			"clear the list", "clear my list", "empty the list",
+			"clear the {list} list", "clear my {list} list", "empty the {list} list", "empty my {list} list",
+		},
 	}, h.clear)
 	assistant.Handle(r, assistant.Spec{
 		Description: "Delete a list and its items",
-		// Ending in "list" beats the clock's "delete the {what}" and
-		// "remove {items}".
+		// Ending in "list" beats the clock's "delete the {what}".
 		Phrases: []string{
+			"delete the list", "delete my list", "delete this list",
 			"delete the {list} list", "delete my {list} list",
 			"remove the {list} list", "remove my {list} list",
 		},
@@ -260,7 +275,15 @@ func (h *handler) add(ctx context.Context, in Add) (assistant.Response, error) {
 	case len(added) == 0:
 		return assistant.Response{Text: "They're already on " + your(name) + "."}, nil
 	}
-	return assistant.Response{Text: "Added " + spoken.JoinAnd(added) + " to " + your(name) + "."}, nil
+	text := "Added " + spoken.JoinAnd(added) + " to " + your(name) + "."
+	if already := without(items, added); len(already) > 0 {
+		verb := " was"
+		if len(already) > 1 {
+			verb = " were"
+		}
+		text += " " + capitalize(spoken.JoinAnd(already)) + verb + " already on it."
+	}
+	return assistant.Response{Text: text}, nil
 }
 
 func (h *handler) remove(ctx context.Context, in Remove) (assistant.Response, error) {
@@ -326,10 +349,11 @@ func (h *handler) clear(ctx context.Context, in Clear) (assistant.Response, erro
 	}
 	if !in.Confirmed {
 		in.List, in.Confirmed = name, true
-		return assistant.Response{
-			Text: fmt.Sprintf("Remove all %s from %s?", plural(len(items), "item"), your(name)),
-			Ask:  &assistant.Question{Intent: in},
-		}, nil
+		text := fmt.Sprintf("Remove all %d items from %s?", len(items), your(name))
+		if len(items) == 1 {
+			text = fmt.Sprintf("Remove %s from %s?", items[0], your(name))
+		}
+		return assistant.Response{Text: text, Ask: &assistant.Question{Intent: in}}, nil
 	}
 	if _, err := h.store.Clear(ctx, name); err != nil {
 		return assistant.Response{}, err
@@ -339,7 +363,11 @@ func (h *handler) clear(ctx context.Context, in Clear) (assistant.Response, erro
 }
 
 func (h *handler) delete(ctx context.Context, in Delete) (assistant.Response, error) {
-	name := Name(in.List)
+	named := Name(in.List) != ""
+	name, resp, ok, err := h.resolve(ctx, in.List, whichList(in, "Delete"))
+	if err != nil || !ok {
+		return resp, err
+	}
 	items, err := h.store.Items(ctx, name)
 	if errors.Is(err, fault.ErrNotFound) {
 		return assistant.Response{Text: "You don't have " + aList(name) + "."}, nil
@@ -347,12 +375,14 @@ func (h *handler) delete(ctx context.Context, in Delete) (assistant.Response, er
 	if err != nil {
 		return assistant.Response{}, err
 	}
-	if len(items) > 0 && !in.Confirmed {
+	// Confirm a list with items, and always one Alfred picked itself.
+	if (len(items) > 0 || !named) && !in.Confirmed {
 		in.List, in.Confirmed = name, true
-		return assistant.Response{
-			Text: fmt.Sprintf("Delete %s and its %s?", your(name), plural(len(items), "item")),
-			Ask:  &assistant.Question{Intent: in},
-		}, nil
+		text := fmt.Sprintf("Delete %s and its %s?", your(name), plural(len(items), "item"))
+		if len(items) == 0 {
+			text = fmt.Sprintf("Delete %s?", your(name))
+		}
+		return assistant.Response{Text: text, Ask: &assistant.Question{Intent: in}}, nil
 	}
 	if _, err := h.store.Delete(ctx, name); err != nil {
 		return assistant.Response{}, err
@@ -365,7 +395,7 @@ func (h *handler) delete(ctx context.Context, in Delete) (assistant.Response, er
 	return assistant.Response{Text: "Deleted " + your(name) + "."}, nil
 }
 
-func (h *handler) lists(ctx context.Context, _ ListLists) (assistant.Response, error) {
+func (h *handler) lists(ctx context.Context, _ All) (assistant.Response, error) {
 	all, err := h.store.Lists(ctx)
 	if err != nil {
 		return assistant.Response{}, err
@@ -396,15 +426,19 @@ func Name(said string) string {
 	return strings.Join(words, " ")
 }
 
-// splitItems splits "milk, eggs and bread" into its items.
+// splitItems splits "milk, eggs and some bread" into its items, without
+// leading articles, so "a tent" and "the tent" are the same item.
 func splitItems(text string) []string {
 	text = strings.ReplaceAll(strings.ToLower(text), " and ", ",")
 	var items []string
 	seen := make(map[string]bool)
 	for _, part := range strings.Split(text, ",") {
 		words := strings.Fields(part)
-		if len(words) > 0 && (words[0] == "and" || words[0] == "some") {
+		for len(words) > 1 && itemFiller[words[0]] {
 			words = words[1:]
+		}
+		if len(words) == 1 && itemFiller[words[0]] {
+			words = nil
 		}
 		item := strings.Join(words, " ")
 		if item != "" && !seen[item] {
@@ -413,6 +447,20 @@ func splitItems(text string) []string {
 		}
 	}
 	return items
+}
+
+// itemFiller starts an item without being part of it.
+var itemFiller = map[string]bool{"and": true, "some": true, "a": true, "an": true, "the": true}
+
+// without returns the items not in drop.
+func without(items, drop []string) []string {
+	var rest []string
+	for _, it := range items {
+		if !slices.Contains(drop, it) {
+			rest = append(rest, it)
+		}
+	}
+	return rest
 }
 
 func your(name string) string  { return "your " + name + " list" }

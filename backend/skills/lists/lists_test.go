@@ -135,11 +135,13 @@ func TestCreateAddRead(t *testing.T) {
 	c := newConversation(t)
 	c.expect(
 		"What's on my shopping list?", "You don't have a list called shopping.",
-		"Add milk.", "You don't have any lists yet. Say: create a list called shopping.",
+		"Add milk to the list.", "You don't have any lists yet. Say: create a list called shopping.",
 		"Create a list called shopping.", "Created your shopping list.",
 		"Make a new list called shopping.", "You already have your shopping list.",
 		"Add milk, eggs and bread to the shopping list.", "Added milk, eggs and bread to your shopping list.",
 		"Add milk to my shopping list.", "Milk is already on your shopping list.",
+		"Add eggs and an apple to it.", "Added apple to your shopping list. Eggs was already on it.",
+		"Remove the apple from the list.", "Removed apple from your shopping list.",
 		"Put cheese on the shopping list.", "Added cheese to your shopping list.",
 		"What's on my shopping list?", "Your shopping list has 4 items: milk, eggs, bread and cheese.",
 		"Remove eggs and cheese from the shopping list.", "Removed eggs and cheese from your shopping list.",
@@ -153,12 +155,12 @@ func TestWhichList(t *testing.T) {
 	c.expect(
 		"Create a list called shopping.", "Created your shopping list.",
 		"Start a packing list.", "Created your packing list.",
-		// Just used: "add" goes to the packing list.
-		"Add socks.", "Added socks to your packing list.",
+		// Just used: "add to it" goes to the packing list.
+		"Add socks to it.", "Added socks to your packing list.",
 	)
 	c.now = c.now.Add(10 * time.Minute)
 	c.expect(
-		"Add milk.", "Add to which list? You have shopping and packing.",
+		"Add milk to the list.", "Add to which list? You have shopping and packing.",
 		"The shopping list.", "Added milk to your shopping list.",
 		"What lists do I have?", "You have 2 lists: shopping and packing.",
 	)
@@ -168,7 +170,7 @@ func TestUnknownListAsksToCreate(t *testing.T) {
 	c := newConversation(t)
 	c.expect(
 		"Add a tent to the camping list.", "You don't have a list called camping. Should I create it?",
-		"Yes.", "Added a tent to your camping list.",
+		"Yes.", "Added tent to your camping list.",
 		"Add stove to the hiking list.", "You don't have a list called hiking. Should I create it?",
 		"No.", "OK.",
 		"What lists do I have?", "You have one list: camping.",
@@ -187,9 +189,17 @@ func TestClearAndDeleteConfirm(t *testing.T) {
 		"Yes.", "Cleared your shopping list.",
 		"What's on the shopping list?", "Your shopping list is empty.",
 		"Add milk to the shopping list.", "Added milk to your shopping list.",
+		"Clear the shopping list.", "Remove milk from your shopping list?",
+		"No.", "OK.",
 		"Delete the shopping list.", "Delete your shopping list and its 1 item?",
 		"Yes.", "Deleted your shopping list.",
 		"Delete the shopping list.", "You don't have a list called shopping.",
+		// "Delete the list": the one just used or the only one, always
+		// confirmed.
+		"Create a list called packing.", "Created your packing list.",
+		"Delete the list.", "Delete your packing list?",
+		"Yes.", "Deleted your packing list.",
+		"Delete the list.", "You don't have any lists yet. Say: create a list called shopping.",
 	)
 }
 

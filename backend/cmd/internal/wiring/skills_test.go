@@ -228,7 +228,7 @@ func TestHelpAndRepeat(t *testing.T) {
 	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatal(err)
 	}
-	want := "I can tell you the time and date, set timers and reminders, and change the volume."
+	want := "I can tell you the time and date, set timers and reminders, change the volume, and keep lists."
 	if got := ask(t, r, "What can you do?"); got != want {
 		t.Errorf("help: %q, want %q", got, want)
 	}
@@ -326,6 +326,50 @@ func TestListsEndToEnd(t *testing.T) {
 		}
 		if reply.Text != step[1] {
 			t.Errorf("%q:\n got %q\nwant %q", step[0], reply.Text, step[1])
+		}
+	}
+}
+
+func TestListPhrasesDontCatchOtherCommands(t *testing.T) {
+	token := filepath.Join(t.TempDir(), "token.json")
+	if err := musicservice.SaveToken(token, &oauth2.Token{AccessToken: "a", RefreshToken: "r"}); err != nil {
+		t.Fatal(err)
+	}
+	r := assistant.NewRouter()
+	cfg := Config{Spotify: musicservice.SpotifyConfig{ClientID: "cid", TokenFile: token}, Volume: fakeWpctl(t)}
+	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), slog.New(slog.DiscardHandler)); err != nil {
+		t.Fatal(err)
+	}
+	m := match.New(r.Intents())
+	// Commands for other skills, which short list templates ("add {items}",
+	// "read the {list}") used to take as list commands.
+	for _, transcript := range []string{
+		"Add 5 minutes.", "Add 5 minutes to timer.", "Add an alarm for 7 am.", "Remove the alarm.",
+		"Read the news.", "Put daft punk on the kitchen speaker.",
+	} {
+		if rec, err := m.Recognize(context.Background(), transcript); err == nil && strings.HasPrefix(rec.Intent, "list_") {
+			t.Errorf("%q went to %s (%q)", transcript, rec.Intent, rec.Phrase)
+		}
+	}
+	// Known limit of the fuzzy tier: one word off a phrase still scores 0.8
+	// ("what is on the radio" against "what is on the list"). It is no
+	// longer a full template match, at least.
+	if rec, err := m.Recognize(context.Background(), "What's on the radio?"); err == nil && rec.Score >= 1 {
+		t.Errorf("what's on the radio: full match %+v", rec)
+	}
+	for transcript, want := range map[string]string{
+		"Add milk to the shopping list.":      "list_add",
+		"Add milk to shopping list.":          "list_add",
+		"Add milk to it.":                     "list_add",
+		"Remove milk from the shopping list.": "list_remove",
+		"What's on my shopping list?":         "list_read",
+		"Read the list.":                      "list_read",
+		"Clear the packing list.":             "list_clear",
+		"Delete the list.":                    "list_delete",
+		"Add 5 minutes to the timer.":         "timer_extend",
+	} {
+		if rec, err := m.Recognize(context.Background(), transcript); err != nil || rec.Intent != want {
+			t.Errorf("%q: %+v, %v; want %s", transcript, rec, err, want)
 		}
 	}
 }

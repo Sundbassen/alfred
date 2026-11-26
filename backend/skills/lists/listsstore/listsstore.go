@@ -30,6 +30,7 @@ func New(db *sql.DB) *Store {
 	return &Store{db: db, q: storedb.New(db)}
 }
 
+// Create creates a list, reporting false if it already exists.
 func (s *Store) Create(ctx context.Context, name string) (bool, error) {
 	n, err := s.q.CreateList(ctx, storedb.CreateListParams{Name: name, CreatedAt: time.Now().UnixMilli()})
 	if err != nil {
@@ -38,6 +39,7 @@ func (s *Store) Create(ctx context.Context, name string) (bool, error) {
 	return n > 0, nil
 }
 
+// Delete deletes a list and its items, reporting false if there was none.
 func (s *Store) Delete(ctx context.Context, name string) (bool, error) {
 	n, err := s.q.DeleteList(ctx, name)
 	if err != nil {
@@ -46,6 +48,7 @@ func (s *Store) Delete(ctx context.Context, name string) (bool, error) {
 	return n > 0, nil
 }
 
+// Lists returns the lists with their item counts, oldest first.
 func (s *Store) Lists(ctx context.Context) ([]lists.List, error) {
 	rows, err := s.q.Lists(ctx)
 	if err != nil {
@@ -58,6 +61,8 @@ func (s *Store) Lists(ctx context.Context) ([]lists.List, error) {
 	return all, nil
 }
 
+// Add adds items to a list in one transaction, returning the ones that
+// were not on it yet; fault.ErrNotFound if the list doesn't exist.
 func (s *Store) Add(ctx context.Context, list string, items []string) ([]string, error) {
 	var added []string
 	err := s.inList(ctx, list, func(q *storedb.Queries, id int64) error {
@@ -76,6 +81,8 @@ func (s *Store) Add(ctx context.Context, list string, items []string) ([]string,
 	return added, err
 }
 
+// Remove removes items from a list in one transaction, returning the ones
+// that were on it; fault.ErrNotFound if the list doesn't exist.
 func (s *Store) Remove(ctx context.Context, list string, items []string) ([]string, error) {
 	var removed []string
 	err := s.inList(ctx, list, func(q *storedb.Queries, id int64) error {
@@ -93,6 +100,8 @@ func (s *Store) Remove(ctx context.Context, list string, items []string) ([]stri
 	return removed, err
 }
 
+// Items returns a list's items, oldest first; fault.ErrNotFound if the
+// list doesn't exist.
 func (s *Store) Items(ctx context.Context, list string) ([]string, error) {
 	var items []string
 	err := s.inList(ctx, list, func(q *storedb.Queries, id int64) error {
@@ -103,6 +112,8 @@ func (s *Store) Items(ctx context.Context, list string) ([]string, error) {
 	return items, err
 }
 
+// Clear removes every item from a list, returning how many there were;
+// fault.ErrNotFound if the list doesn't exist.
 func (s *Store) Clear(ctx context.Context, list string) (int, error) {
 	var n int64
 	err := s.inList(ctx, list, func(q *storedb.Queries, id int64) error {

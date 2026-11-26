@@ -417,7 +417,8 @@ func (h *handler) lists(ctx context.Context, _ All) (assistant.Response, error) 
 // lists" and "shopping" are all "shopping". "" means no name was said.
 func Name(said string) string {
 	words := strings.Fields(strings.ToLower(strings.ReplaceAll(said, ",", " ")))
-	for len(words) > 0 && (words[0] == "the" || words[0] == "my" || words[0] == "our" || words[0] == "a") {
+	for len(words) > 0 && (words[0] == "the" || words[0] == "my" || words[0] == "our" || words[0] == "a" ||
+		words[0] == "this" || words[0] == "that") {
 		words = words[1:]
 	}
 	for len(words) > 0 && (words[len(words)-1] == "list" || words[len(words)-1] == "lists") {

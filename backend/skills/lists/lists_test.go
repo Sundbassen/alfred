@@ -206,7 +206,7 @@ func TestClearAndDeleteConfirm(t *testing.T) {
 func TestNameAndItems(t *testing.T) {
 	for said, want := range map[string]string{
 		"shopping": "shopping", "shopping list": "shopping", "the shopping list": "shopping",
-		"my shopping lists": "shopping", "to do": "to do", "list": "",
+		"my shopping lists": "shopping", "to do": "to do", "list": "", "this": "", "that list": "",
 	} {
 		if got := Name(said); got != want {
 			t.Errorf("Name(%q) = %q, want %q", said, got, want)

@@ -134,7 +134,7 @@ It repeats every 10 seconds, for up to 5 minutes, until you say "hey alfred, sto
 Lists you create and fill by voice, kept in the local database (`~/.local/state/alfred/alfred.db`) for now; a cloud backend that shares them with your phone is planned ([#39](https://github.com/Sundbassen/alfred/issues/39)).
 
 - "create a list called shopping", "start a packing list"
-- "add milk, eggs and bread to the shopping list", "put socks on my packing list"; just "add milk" goes to the list you used in the last 5 minutes, or your only list, or Alfred asks which one
+- "add milk, eggs and bread to the shopping list", "put socks on my packing list"; "add milk to the list" (or "to it") goes to the list you used in the last 5 minutes, or your only list, or Alfred asks which one
 - "remove eggs from the shopping list", "what's on my shopping list", "clear the shopping list", "delete the packing list" (Alfred asks before throwing items away), "what lists do I have"
 - Adding to a list that doesn't exist: "You don't have a list called camping. Should I create it?"
 

@@ -1,5 +1,5 @@
-// Package clock is the clock skill: it tells the time and sets timers,
-// alarms and reminders, which are one intent: a point in time when Alfred
+// Package clock is the clock skill: it tells the time and the date, and sets
+// timers, alarms and reminders, which are one intent: a point in time when Alfred
 // chimes, plus an optional message to say.
 package clock
 
@@ -21,6 +21,14 @@ import (
 type AskTime struct{}
 
 func (AskTime) IntentName() string { return "time" }
+
+// AskDate is the intent "what's the date" / "what day is it", optionally
+// for another day in the coming week ("what's the date on friday").
+type AskDate struct {
+	Day string `slot:"day,optional"`
+}
+
+func (AskDate) IntentName() string { return "date" }
 
 // SetTimer sets a timer ("set a timer for 10 minutes"), an alarm ("wake me
 // up at 7") or a reminder ("remind me to call mom in 10 minutes"). Which
@@ -90,7 +98,26 @@ func register(r *assistant.Router, timers *Timers, now func() time.Time) {
 			"tell me the time",
 			"current time",
 		},
+		Help: "tell you the time and date",
 	}, h.askTime)
+	assistant.Handle(r, assistant.Spec{
+		Description: "Tell the date and day of the week, today or another day in the coming week",
+		Phrases: []string{
+			"what is the date",
+			"what day is it",
+			"what is today's date",
+			"what is the date today",
+			"what day is it today",
+			"what day is today",
+			"what date is it",
+			"what date is it today",
+			"what is the date {day}",
+			"what date is it {day}",
+			"what day is it {day}",
+			"what date is {day}",
+			"what day is {day}",
+		},
+	}, h.askDate)
 	assistant.Handle(r, assistant.Spec{
 		Description: "Set a timer, an alarm or a reminder: when it goes off, Alfred chimes and says the message, if any",
 		Phrases: []string{
@@ -105,6 +132,7 @@ func register(r *assistant.Router, timers *Timers, now func() time.Time) {
 			"remind me to {message}",
 			"remind me {message}",
 		},
+		Help: "set timers and reminders",
 	}, h.setTimer)
 	registerManage(r, h)
 }
@@ -116,6 +144,21 @@ type handler struct {
 
 func (h *handler) askTime(ctx context.Context, _ AskTime) (assistant.Response, error) {
 	return assistant.Response{Text: fmt.Sprintf("It's %s.", h.now().Format("15:04"))}, nil
+}
+
+func (h *handler) askDate(ctx context.Context, i AskDate) (assistant.Response, error) {
+	now := h.now()
+	day, ok := spoken.ParseDay(match.Normalize(i.Day), now)
+	if !ok {
+		return assistant.Response{}, &assistant.SpokenError{
+			Text: "Sorry, I can only tell the date for the coming week.",
+			Err:  errors.WithMessagef(fault.ErrInvalidValue, "day %q", i.Day),
+		}
+	}
+	if y, m, d := now.Date(); day.Year() == y && day.Month() == m && day.Day() == d {
+		return assistant.Response{Text: "It's " + now.Format("Monday, January 2") + "."}, nil
+	}
+	return assistant.Response{Text: "That's " + day.Format("Monday, January 2") + "."}, nil
 }
 
 func (h *handler) setTimer(ctx context.Context, i SetTimer) (assistant.Response, error) {

@@ -22,6 +22,7 @@ import (
 	"github.com/sundbassen/alfred/internal/store"
 	"github.com/sundbassen/alfred/skills/clock"
 	"github.com/sundbassen/alfred/skills/clock/clockstore"
+	"github.com/sundbassen/alfred/skills/conversation"
 	"github.com/sundbassen/alfred/skills/music"
 	"github.com/sundbassen/alfred/skills/music/musicservice"
 	"github.com/sundbassen/alfred/skills/stop"
@@ -80,6 +81,11 @@ func ConfigFromEnv() Config {
 // line, so Alfred still runs without it. Other provider failures, and a
 // failure to restore saved state, are returned.
 func RegisterSkills(ctx context.Context, r *assistant.Router, cfg Config, out *app.Output, db *sql.DB, logger *slog.Logger) error {
+	// Remembers the last reply, for "repeat that".
+	history := conversation.NewHistory()
+	r.Use(history.Middleware)
+	conversation.Register(r, history)
+
 	timers := clock.NewTimers(out, clockstore.New(db), logger)
 	if err := timers.Restore(ctx); err != nil {
 		return err

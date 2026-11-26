@@ -116,13 +116,13 @@ func TestCancelAnswerNarrowsTheQuestion(t *testing.T) {
 		if err != nil || resp.Ask == nil {
 			t.Fatalf("cancel the timer: %+v, %v; want a question", resp, err)
 		}
-		// "All of them" means both timers, not the alarm and the reminder.
-		answer, err := assistant.SetSlot(resp.Ask.Intent, resp.Ask.Slot, "all of them")
+		// "Both" means both timers, not the alarm and the reminder.
+		answer, err := assistant.SetSlot(resp.Ask.Intent, resp.Ask.Slot, "both of them")
 		if err != nil {
 			t.Fatal(err)
 		}
 		if resp, err := r.Dispatch(context.Background(), answer); err != nil || resp.Text != "Cancelled all 2." {
-			t.Errorf("all of them: %q, %v; want Cancelled all 2.", resp.Text, err)
+			t.Errorf("both of them: %q, %v; want Cancelled all 2.", resp.Text, err)
 		}
 		var left []Kind
 		for _, e := range timers.list() {

@@ -80,14 +80,14 @@ var kindWords = map[string]Kind{
 var selectionFiller = map[string]bool{
 	"the": true, "my": true, "a": true, "an": true, "it": true, "that": true, "this": true, "one": true,
 	"for": true, "to": true, "about": true, "set": true, "of": true, "and": true, "any": true, "on": true,
-	"them": true, "both": true,
+	"them": true,
 }
 
 func parseSelection(what string) selection {
 	var sel selection
 	for _, w := range strings.Fields(match.Normalize(what)) {
 		switch {
-		case w == "all" || w == "every" || w == "everything":
+		case w == "all" || w == "every" || w == "everything" || w == "both":
 			sel.all = true
 		case selectionFiller[w]:
 		default:

@@ -41,6 +41,7 @@ func JoinAnd(parts []string) string {
 }
 
 // FormatClock says a clock time relative to now: "19:00", "07:00 tomorrow".
+// at must be today or tomorrow; any other day is also said as "tomorrow".
 func FormatClock(at, now time.Time) string {
 	s := at.Format("15:04")
 	ay, am, ad := at.Date()

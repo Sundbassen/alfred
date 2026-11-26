@@ -23,23 +23,35 @@ type Wpctl struct {
 	run func(ctx context.Context, args ...string) ([]byte, error)
 }
 
-// NewWpctl returns a Wpctl; fault.ErrNotFound if wpctl is not installed
-// (it comes with WirePlumber).
-func NewWpctl() (*Wpctl, error) {
+// WpctlConfig says where wpctl is.
+type WpctlConfig struct {
+	// Path is the wpctl binary; empty when it isn't installed (it comes with
+	// WirePlumber).
+	Path string
+}
+
+// WpctlPath returns the wpctl binary on PATH, or "" if there is none.
+func WpctlPath() string {
 	path, err := exec.LookPath("wpctl")
 	if err != nil {
-		return nil, errors.Prefix(errors.WithMessage(err, "wpctl not found"), fault.ErrNotFound)
+		return ""
 	}
+	return path
+}
+
+// NewWpctl returns a Wpctl running the configured binary.
+func NewWpctl(cfg WpctlConfig) *Wpctl {
+	path := cfg.Path
 	return &Wpctl{run: func(ctx context.Context, args ...string) ([]byte, error) {
 		var stderr bytes.Buffer
 		cmd := exec.CommandContext(ctx, path, args...)
 		cmd.Stderr = &stderr
 		out, err := cmd.Output()
 		if err != nil {
-			return nil, errors.WithMessagef(err, "wpctl %s (%s)", strings.Join(args, " "), strings.TrimSpace(stderr.String()))
+			return nil, errors.Prefix(errors.WithMessagef(err, "wpctl %s (%s)", strings.Join(args, " "), strings.TrimSpace(stderr.String())), fault.ErrServiceUnavailable)
 		}
 		return out, nil
-	}}, nil
+	}}
 }
 
 // Volume returns the output's level (0–1) and whether it is muted.

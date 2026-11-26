@@ -18,6 +18,7 @@ import (
 	"github.com/sundbassen/alfred/internal/store"
 	"github.com/sundbassen/alfred/internal/voice/tts"
 	"github.com/sundbassen/alfred/skills/music/musicservice"
+	"github.com/sundbassen/alfred/skills/volume/volumeservice"
 )
 
 func intents(t *testing.T, cfg Config) map[string]bool {
@@ -161,7 +162,12 @@ func TestPromptCoversEveryIntent(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := assistant.NewRouter()
-	cfg := Config{Spotify: musicservice.SpotifyConfig{ClientID: "cid", TokenFile: token}}
+	// Every skill, whatever this machine has installed (the wpctl path is
+	// not run while registering).
+	cfg := Config{
+		Spotify: musicservice.SpotifyConfig{ClientID: "cid", TokenFile: token},
+		Volume:  volumeservice.WpctlConfig{Path: "/usr/bin/wpctl"},
+	}
 	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatal(err)
 	}
@@ -195,10 +201,11 @@ func TestPromptCoversEveryIntent(t *testing.T) {
 
 func TestHelpAndRepeat(t *testing.T) {
 	r := assistant.NewRouter()
-	if err := RegisterSkills(context.Background(), r, Config{}, testOutput(), testDB(t), slog.New(slog.DiscardHandler)); err != nil {
+	cfg := Config{Volume: volumeservice.WpctlConfig{Path: "/usr/bin/wpctl"}}
+	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatal(err)
 	}
-	want := "I can tell you the time and date, and set timers and reminders."
+	want := "I can tell you the time and date, set timers and reminders, and change the volume."
 	if got := ask(t, r, "What can you do?"); got != want {
 		t.Errorf("help: %q, want %q", got, want)
 	}

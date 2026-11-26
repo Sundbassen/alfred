@@ -361,6 +361,8 @@ var ignored = map[string]bool{
 func Normalize(text string) string {
 	// Whisper may emit a typographic apostrophe.
 	text = strings.ReplaceAll(strings.ToLower(text), "’", "'")
+	// Whisper writes "five percent" as "5%".
+	text = strings.ReplaceAll(text, "%", " percent")
 
 	var words []string
 	for _, word := range strings.Fields(text) {

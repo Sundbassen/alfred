@@ -18,6 +18,7 @@ func TestNormalize(t *testing.T) {
 		{"What’s the time?", "what is the time"},
 		{"Hey Alfred, uh, tell me the time please.", "tell me the time"},
 		{"Turn on the living-room lights!", "turn on the living room lights"},
+		{"Set the volume to 5%.", "set the volume to 5 percent"},
 		{"  ", ""},
 		{"...", ""},
 	}

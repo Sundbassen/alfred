@@ -67,7 +67,11 @@ func Register(r *assistant.Router, m Mixer) {
 	}, func(ctx context.Context, _ Down) (assistant.Response, error) { return h.change(ctx, -step) })
 	assistant.Handle(r, assistant.Spec{
 		Description: "Set the speaker volume to a level from 0 to 10, or a percentage",
-		Phrases:     []string{"set the volume to {level}", "set volume to {level}", "volume {level}", "volume to {level}"},
+		Phrases: []string{
+			"set the volume to {level}", "set volume to {level}", "volume {level}", "volume to {level}",
+			"turn the volume up to {level}", "turn the volume down to {level}",
+			"turn it up to {level}", "turn it down to {level}",
+		},
 	}, h.set)
 	assistant.Handle(r, assistant.Spec{
 		Description: "Mute the speaker",
@@ -91,12 +95,14 @@ type handler struct {
 }
 
 // change moves the volume by delta (and unmutes: louder while muted means
-// "I want to hear it").
+// "I want to hear it"). A level above 100 % (set by another program) counts
+// as 100 %, so louder never makes it quieter.
 func (h *handler) change(ctx context.Context, delta float64) (assistant.Response, error) {
 	level, muted, err := h.mixer.Volume(ctx)
 	if err != nil {
 		return assistant.Response{}, err
 	}
+	level = min(level, 1)
 	if err := h.setLevel(ctx, level+delta, muted); err != nil {
 		return assistant.Response{}, err
 	}
@@ -137,19 +143,20 @@ func (h *handler) say(ctx context.Context) (assistant.Response, error) {
 	if err != nil {
 		return assistant.Response{}, err
 	}
-	return assistant.Response{Text: fmt.Sprintf("Volume %d.", int(math.Round(level*10)))}, nil
+	return assistant.Response{Text: fmt.Sprintf("Volume %d.", int(math.Round(min(level, 1)*10)))}, nil
 }
 
-// parseLevel parses a spoken level: 0–10 ("5", "five"), a percentage ("50
-// percent", or a number above 10), "max", "half".
+// parseLevel parses a spoken level (normalized): 0–10 ("5", "five"), a
+// percentage ("50 percent", "5 percent", or a bare number above 10), "max",
+// "half", "min".
 func parseLevel(text string) (float64, bool) {
 	tokens := strings.Fields(text)
 	switch strings.Join(tokens, " ") {
-	case "max", "maximum", "full", "100 percent":
+	case "max", "maximum", "full":
 		return 1, true
 	case "half", "half way", "halfway":
 		return 0.5, true
-	case "min", "minimum", "zero", "0":
+	case "min", "minimum":
 		return 0, true
 	}
 	n, next, ok := spoken.Number(tokens, 0)
@@ -157,7 +164,7 @@ func parseLevel(text string) (float64, bool) {
 		return 0, false
 	}
 	percent := false
-	if next < len(tokens) && (tokens[next] == "percent" || tokens[next] == "%") {
+	if next < len(tokens) && tokens[next] == "percent" {
 		percent = true
 		next++
 	}

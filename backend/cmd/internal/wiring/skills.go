@@ -36,6 +36,8 @@ type Config struct {
 	DB string
 	// Spotify for the music skill; an empty ClientID disables it.
 	Spotify musicservice.SpotifyConfig
+	// Volume for the volume skill; an empty Path (no wpctl) disables it.
+	Volume volumeservice.WpctlConfig
 	// IntentModel is the local model recognizing what the phrase
 	// templates miss; a missing model file disables it.
 	IntentModel IntentModelConfig
@@ -55,6 +57,7 @@ type IntentModelConfig struct {
 //	ALFRED_SPOTIFY_CLIENT_ID   Spotify app client ID (empty: no music skill)
 //	ALFRED_SPOTIFY_TOKEN_FILE  login from make spotify-login (default ~/.config/alfred/spotify-token.json)
 //	ALFRED_SPOTIFY_DEVICE      Spotify Connect name of this speaker (default "Alfred")
+//	ALFRED_WPCTL               wpctl binary for the volume skill (default: wpctl on PATH; none: no volume skill)
 //	ALFRED_LLAMA_SERVER        llama-server binary (default .deps/llama.cpp/build-server/bin/llama-server; set by make)
 //	ALFRED_INTENT_MODEL_FILE   local intent model (default models/llm/<Ministral GGUF>; missing: no model tier)
 //	ALFRED_INTENT_MODEL_THREADS  CPU threads for the model (default 4)
@@ -67,6 +70,7 @@ func ConfigFromEnv() Config {
 			TokenFile: envOr("ALFRED_SPOTIFY_TOKEN_FILE", musicservice.DefaultSpotifyTokenFile()),
 			Device:    envOr("ALFRED_SPOTIFY_DEVICE", "Alfred"),
 		},
+		Volume: volumeservice.WpctlConfig{Path: envOr("ALFRED_WPCTL", volumeservice.WpctlPath())},
 		IntentModel: IntentModelConfig{
 			Server:    envOr("ALFRED_LLAMA_SERVER", ".deps/llama.cpp/build-server/bin/llama-server"),
 			ModelFile: envOr("ALFRED_INTENT_MODEL_FILE", filepath.Join("models", "llm", ministral.ModelFile)),
@@ -94,7 +98,7 @@ func RegisterSkills(ctx context.Context, r *assistant.Router, cfg Config, out *a
 	}
 	clock.Register(r, timers)
 
-	registerVolume(r, logger)
+	registerVolume(r, cfg.Volume, logger)
 
 	player, err := registerMusic(r, cfg.Spotify, logger)
 	if err != nil {
@@ -115,13 +119,13 @@ func RegisterSkills(ctx context.Context, r *assistant.Router, cfg Config, out *a
 
 // registerVolume registers the volume skill on the default PipeWire output,
 // unless wpctl is missing.
-func registerVolume(r *assistant.Router, logger *slog.Logger) {
-	mixer, err := volumeservice.NewWpctl()
-	if err != nil {
-		logger.Info("Volume skill disabled: wpctl not found (install WirePlumber)")
+func registerVolume(r *assistant.Router, cfg volumeservice.WpctlConfig, logger *slog.Logger) {
+	if cfg.Path == "" {
+		logger.Info("Volume skill disabled: wpctl not found (install WirePlumber, or set ALFRED_WPCTL)")
 		return
 	}
-	volume.Register(r, mixer)
+	volume.Register(r, volumeservice.NewWpctl(cfg))
+	logger.Info("Volume skill enabled", slog.String("provider", "wpctl"), slog.String("path", cfg.Path))
 }
 
 // registerMusic registers the music skill with Spotify as its provider,

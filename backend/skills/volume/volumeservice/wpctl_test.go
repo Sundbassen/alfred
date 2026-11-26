@@ -31,12 +31,22 @@ func TestCommands(t *testing.T) {
 		return []byte("Volume: 0.50\n"), nil
 	}}
 	ctx := context.Background()
-	w.SetVolume(ctx, 0.3)
-	w.SetMute(ctx, true)
-	w.Volume(ctx)
+	if err := w.SetVolume(ctx, 0.3); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.SetMute(ctx, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.SetMute(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	if level, muted, err := w.Volume(ctx); err != nil || level != 0.5 || muted {
+		t.Errorf("Volume() = %.2f, %v, %v; want 0.50, false, nil", level, muted, err)
+	}
 	want := []string{
 		"set-volume --limit 1.0 @DEFAULT_AUDIO_SINK@ 0.30",
 		"set-mute @DEFAULT_AUDIO_SINK@ 1",
+		"set-mute @DEFAULT_AUDIO_SINK@ 0",
 		"get-volume @DEFAULT_AUDIO_SINK@",
 	}
 	if strings.Join(calls, "|") != strings.Join(want, "|") {

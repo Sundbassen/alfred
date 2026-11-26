@@ -53,6 +53,9 @@ jobs:
       # Generated query code matches queries.sql and the migrations
       - run: make sqlc-diff
 
+      # Generated ESPHome API code matches proto/esphome
+      - run: make proto-diff
+
       - run: make vet
 
       # cmd -> anything, skills -> internal, internal -> internal only

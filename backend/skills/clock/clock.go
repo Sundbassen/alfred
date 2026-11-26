@@ -101,7 +101,7 @@ func register(r *assistant.Router, timers *Timers, now func() time.Time) {
 		Help: "tell you the time and date",
 	}, h.askTime)
 	assistant.Handle(r, assistant.Spec{
-		Description: "Tell today's date and day of the week",
+		Description: "Tell the date and day of the week, today or another day in the coming week",
 		Phrases: []string{
 			"what is the date",
 			"what day is it",

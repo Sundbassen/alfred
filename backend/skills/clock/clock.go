@@ -113,6 +113,7 @@ func register(r *assistant.Router, timers *Timers, now func() time.Time) {
 			"what date is it today",
 			"what is the date {day}",
 			"what date is it {day}",
+			"what day is it {day}",
 			"what date is {day}",
 			"what day is {day}",
 		},

@@ -120,6 +120,8 @@ func TestAskDate(t *testing.T) {
 		"What's today's date?":       "It's Tuesday, November 24.",
 		"What's the date tomorrow?":  "That's Wednesday, November 25.",
 		"What day is tomorrow?":      "That's Wednesday, November 25.",
+		"What day is it tomorrow?":   "That's Wednesday, November 25.",
+		"What day is it on Friday?":  "That's Friday, November 27.",
 		"What's the date on Friday?": "That's Friday, November 27.",
 	} {
 		resp, err := r.Dispatch(context.Background(), recognize(t, r, transcript))

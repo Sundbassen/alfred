@@ -14,6 +14,9 @@ backend/.deps/
 backend/alfred
 backend/reviewrecordings
 
+# --- Satellites: linux-voice-assistant, exported wake word (satellite/) ---
+satellite/.deps/
+
 # --- Python training environment (trainwakeword/) ---
 trainwakeword/pythonvenv/
 __pycache__/

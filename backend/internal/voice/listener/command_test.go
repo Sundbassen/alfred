@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"testing"
+	"testing/synctest"
 
 	"github.com/sundbassen/alfred/internal/voice"
 )
@@ -318,4 +319,36 @@ func TestFollowUpWithoutWakeWord(t *testing.T) {
 	if len(h.proc.got) != 2 {
 		t.Errorf("transcribed %d, want the command in progress finished normally", len(h.proc.got))
 	}
+}
+
+// TestListenReachesTheCommandLoop: Service.Listen starts a command without
+// the wake word in the running command loop.
+func TestListenReachesTheCommandLoop(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		h := newHarness(testCommandConfig())
+		s := &service{
+			audioChan:       make(chan []byte),
+			listenChan:      make(chan struct{}, 1),
+			transcriptChan:  make(chan voice.Transcript, 1),
+			silenceDetector: h.det,
+			transcriber:     h.proc,
+			wakeWord:        h.act,
+			command:         testCommandConfig(),
+			sink:            h.sink,
+			logger:          slog.New(slog.NewTextHandler(io.Discard, nil)),
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go s.commandLoop(ctx)
+
+		s.Listen()
+		synctest.Wait() // the loop took the request
+		for _, chunk := range [][]byte{c4('V', 1), c4('V', 2), c4('S', 3), c4('S', 4)} {
+			s.audioChan <- chunk
+		}
+		synctest.Wait()
+		if len(h.proc.got) != 1 {
+			t.Errorf("transcribed %d commands, want the answer without a wake word", len(h.proc.got))
+		}
+	})
 }

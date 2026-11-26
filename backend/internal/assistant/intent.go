@@ -39,6 +39,10 @@ type Response struct {
 //     no drops it ("Should I create it?").
 //
 // Saying a whole other command instead of answering runs that command.
+//
+// The question is kept on the server side by whoever dispatches (e.g.
+// app.Assistant, for one conversation); only Slot is serialized, so a
+// client knows an answer is expected but can't rebuild Intent itself.
 type Question struct {
 	Intent Intent `json:"-"`
 	Slot   string `json:"slot,omitempty"`

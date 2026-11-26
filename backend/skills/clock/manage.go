@@ -18,8 +18,13 @@ import (
 // CancelTimer cancels a timer, alarm or reminder: "cancel the timer",
 // "cancel my 7 o'clock alarm", "cancel the reminder to call mom", "cancel
 // all timers". With one pending, "cancel it" is enough.
+//
+// Among is set when Alfred asked "Which one?": the selection it asked
+// about, so the answer ("the 10 minute one", "all of them") narrows it down
+// instead of starting over. It is not a slot; recognizers never fill it.
 type CancelTimer struct {
-	What string `slot:"what,optional"`
+	What  string `slot:"what,optional"`
+	Among string
 }
 
 func (CancelTimer) IntentName() string { return "timer_cancel" }
@@ -139,8 +144,12 @@ func (sel selection) noneText() string {
 func (h *handler) cancelTimer(ctx context.Context, i CancelTimer) (assistant.Response, error) {
 	now := h.now()
 	sel := parseSelection(i.What)
+	among := parseSelection(i.Among)
 	var all, matched []entry
 	for _, e := range h.timers.list() {
+		if !among.matches(e, now) {
+			continue
+		}
 		if len(sel.kinds) == 0 || slices.Contains(sel.kinds, e.Kind) {
 			all = append(all, e)
 		}
@@ -161,10 +170,11 @@ func (h *handler) cancelTimer(ctx context.Context, i CancelTimer) (assistant.Res
 		for i, e := range matched {
 			names[i] = e.name(now)
 		}
-		// The answer ("the 10 minute one", "all of them") is a new What.
+		// The answer ("the 10 minute one", "all of them") is a new What,
+		// among the ones just listed.
 		return assistant.Response{
 			Text: fmt.Sprintf("You have %d: %s. Which one?", len(matched), spoken.JoinAnd(names)),
-			Ask:  &assistant.Question{Intent: CancelTimer{}, Slot: "what"},
+			Ask:  &assistant.Question{Intent: CancelTimer{Among: strings.TrimSpace(i.Among + " " + i.What)}, Slot: "what"},
 		}, nil
 	}
 

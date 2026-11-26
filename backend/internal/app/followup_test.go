@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -98,6 +99,76 @@ func TestYesNoQuestion(t *testing.T) {
 	respond(t, a, "Create camping.")
 	if _, err := a.Respond(context.Background(), "maybe tomorrow"); !errors.Is(err, fault.ErrNotFound) {
 		t.Errorf("neither yes nor no: %v, want no match", err)
+	}
+}
+
+func TestAnswers(t *testing.T) {
+	for _, tc := range []struct {
+		name, ask, answer, want string
+		did                     []string
+	}{
+		{"no to a slot question", "Add milk.", "No.", "OK.", nil},
+		{"not now to a slot question", "Add milk.", "Not now.", "OK.", nil},
+		{"no corrects a slot answer", "Add milk.", "No, the packing list.", "Added.", []string{"add milk to the packing list"}},
+		{"please alone is no answer to yes/no", "Create packing.", "Please.", "", nil},
+		{"no thanks to yes/no", "Create packing.", "No, thanks.", "OK.", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			a, did := newAskingAssistant(t)
+			respond(t, a, tc.ask)
+			reply, err := a.Respond(context.Background(), tc.answer)
+			if tc.want == "" {
+				if !errors.Is(err, fault.ErrNotFound) {
+					t.Errorf("%q: %+v, %v; want no match", tc.answer, reply, err)
+				}
+				return
+			}
+			if err != nil || reply.Text != tc.want {
+				t.Errorf("%q: %+v, %v; want %q", tc.answer, reply, err, tc.want)
+			}
+			if len(*did) != len(tc.did) || (len(tc.did) > 0 && (*did)[0] != tc.did[0]) {
+				t.Errorf("did %q, want %q", *did, tc.did)
+			}
+		})
+	}
+}
+
+func TestAskAgainAfterAnswer(t *testing.T) {
+	// A handler may ask again when the answer wasn't enough; the new
+	// question is pending in turn.
+	r := newTestRouter(nil)
+	assistant.Handle(r, assistant.Spec{Phrases: []string{"add {item}"}},
+		func(_ context.Context, in addItem) (assistant.Response, error) {
+			if in.List != "the shopping list" {
+				return assistant.Response{Text: "Which list?", Ask: &assistant.Question{Intent: addItem{Item: in.Item}, Slot: "list"}}, nil
+			}
+			return assistant.Response{Text: "Added."}, nil
+		})
+	a := withTemplates(r)
+	respond(t, a, "Add milk.")
+	if reply := respond(t, a, "The other one."); reply.Text != "Which list?" || !reply.Listen {
+		t.Errorf("asked again: %+v", reply)
+	}
+	if reply := respond(t, a, "The shopping list."); reply.Text != "Added." {
+		t.Errorf("second answer: %+v", reply)
+	}
+}
+
+type badQuestion struct{}
+
+func (badQuestion) IntentName() string { return "bad" }
+
+func TestQuestionForAMissingSlot(t *testing.T) {
+	r := newTestRouter(nil)
+	assistant.Handle(r, assistant.Spec{Phrases: []string{"ask me"}},
+		func(context.Context, badQuestion) (assistant.Response, error) {
+			return assistant.Response{Text: "What?", Ask: &assistant.Question{Intent: badQuestion{}, Slot: "nope"}}, nil
+		})
+	a := withTemplates(r)
+	respond(t, a, "Ask me.")
+	_, err := a.Respond(context.Background(), "Something.")
+	if err == nil || !strings.Contains(err.Error(), "bad") {
+		t.Errorf("answer to a missing slot: %v, want an error naming the intent", err)
 	}
 }
 

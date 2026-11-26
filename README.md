@@ -25,7 +25,7 @@ command matching ─ normalization + token overlap against each command's phrase
 reply ─────── espeak-ng (a natural voice is planned: #5)
 ```
 
-Unrecognized requests get "Sorry, I didn't catch that." A cloud LLM fallback for freeform questions is planned ([#2](https://github.com/Sundbassen/alfred/issues/2)).
+When Alfred asks something back ("You have 2 timers. Which one?", "Should I create it?"), it listens for the answer for a few seconds without the wake word. Unrecognized requests get "Sorry, I didn't catch that." A cloud LLM fallback for freeform questions is planned ([#2](https://github.com/Sundbassen/alfred/issues/2)).
 
 ## Requirements
 

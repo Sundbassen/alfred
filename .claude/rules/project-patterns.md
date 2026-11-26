@@ -77,7 +77,7 @@ Recognition, the router and the skills don't change.
 ## Conventions
 
 - **Handlers are transport-agnostic:** they take `(ctx, concrete intent)` and return `(Response, error)`, and never see voice or HTTP types. A future HTTP API (`POST /intents/{name}`) dispatches to the same handlers.
-- **Follow-up questions:** a handler that needs more ("Which one?", "Should I create it?") returns `Response{Text, Ask: &assistant.Question{Intent, Slot}}` with the intent partly filled: the answer fills `Slot` (or, without a slot, yes dispatches the intent as is). `app.Assistant` keeps the question and the front end listens for the answer without the wake word. Prefer this over a `SpokenError` that makes the user start over.
+- **Follow-up questions:** a handler that needs more ("Which one?", "Should I create it?") returns `Response{Text, Ask: &assistant.Question{Intent, Slot}}` with the intent partly filled: the answer fills `Slot` (or, without a slot, yes dispatches the intent as is). `app.Assistant` keeps the question (one pending question per assistant, i.e. per conversation; the question isn't part of the serialized response) and the front end listens for the answer without the wake word. Data the answer must not lose (e.g. which timers were listed) goes in a non-slot field of the asked intent. Prefer this over a `SpokenError` that makes the user start over.
 - **Interfaces live with their consumer** (the skill), not with the implementation. Don't define an interface before something uses it.
 - **Dependencies are passed explicitly** through constructors and `Register`: no globals, no `init()` registration, no DI framework.
 - **Errors** follow `.claude/rules/go-errors.md`: tozd errors, with generic categories in `internal/platform/fault`.

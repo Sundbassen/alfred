@@ -90,6 +90,8 @@ install:
 	@# Go 1.27 refuses to build cgo code linked with -fopenmp (the whisper
 	@# binding) when a GCC .spec file sits under the working directory, and
 	@# llama.cpp ships packaging specs in .devops/: leave that folder out.
+	@# The index refresh lets git remove files a cache restore re-timestamped.
+	@git -C $(LLAMA_DIR) update-index -q --refresh >/dev/null 2>&1 || true
 	@git -C $(LLAMA_DIR) sparse-checkout set --no-cone '/*' '!/.devops/'
 	@if [ "$$(git -C $(LLAMA_DIR) rev-parse HEAD 2>/dev/null)" != "$(LLAMA_REF)" ]; then \
 		echo "Fetching llama.cpp $(LLAMA_REF)..."; \

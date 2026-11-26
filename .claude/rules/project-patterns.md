@@ -30,7 +30,7 @@ internal/  may import only internal/       (plus the standard library and third-
 | `internal/app/` | Wires the voice framework into a listener, plus `Assistant` (recognize → dispatch). It never imports skills |
 | `internal/voice/` | The voice framework: `listener`, `wakeword`, `stt`, `vad` (+ `silero`), `mic`, `tts`, `sound` (the chime), `recorder`. Its contracts are in `voice.go` |
 | `internal/store/` | Alfred's local SQLite database (`modernc.org/sqlite`): `Open` (pragmas in the connection string, mode 0600), the one shared schema in `migrations/NNNN_name.sql` (numbered, up-only, every table `STRICT`), the queries in `queries/` (one file per table or area), and `storedb`, generated from them by sqlc. Cloud-owned user data does not go here (#39) |
-| `internal/spoken/` | Spoken language for skills: parsing times, durations, days and numbers as people say them (`ParseWhen`, `ParseDay`, `Number`) and saying them back (`FormatDuration`, `FormatClock`, `JoinAnd`, `SecondPerson`) |
+| `internal/spoken/` | Spoken language for skills: parsing times, durations, days and numbers as people say them (`ParseWhen`, `ParseDay`, `Number`) and saying them back (`FormatDuration`, `FormatClock`, `FormatRemaining`, `JoinAnd`, `JoinOr`, `SecondPerson`) |
 | `internal/platform/` | Shared helpers: `fault` (error categories, see `go-errors.md`), `pcm`, `wav`, `onnxrt`, `logging`, `wakeclip` |
 | `internal/<client>/` | Infrastructure shared by several skills (e.g. `internal/homeassistant`, an API client used by lights and climate). Each skill's service package adapts it to that skill's interface |
 

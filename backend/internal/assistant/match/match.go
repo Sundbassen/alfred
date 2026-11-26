@@ -172,7 +172,8 @@ const MaxPromptWords = 150
 // what is it, what is it, ...") until the temperature fallback rescued it
 // at ~10x the latency.
 func (m *Matcher) Prompt() string {
-	// Candidate sentences per intent, in registration order.
+	// Every phrase's prompt text, in registration order; plain marks texts
+	// that some plain phrase has.
 	type candidate struct {
 		text     string
 		fragment bool // from a template
@@ -192,6 +193,7 @@ func (m *Matcher) Prompt() string {
 			return strings.HasPrefix(o.text, c.text+" ")
 		})
 	}
+	// Candidate sentences per intent, in registration order.
 	var order []string
 	byIntent := make(map[string][]string)
 	for _, p := range m.phrases {

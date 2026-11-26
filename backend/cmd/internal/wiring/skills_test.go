@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -165,17 +166,23 @@ func TestPromptCoversEveryIntent(t *testing.T) {
 		t.Fatal(err)
 	}
 	prompt := strings.ToLower(match.New(r.Intents()).Prompt())
-	if words := len(strings.Fields(prompt)); words > 150 {
-		t.Errorf("prompt has %d words", words)
+	if words := len(strings.Fields(prompt)); words > match.MaxPromptWords {
+		t.Errorf("prompt has %d words, want at most %d", words, match.MaxPromptWords)
 	}
-	// Every intent with a plain phrase gets at least its first one in.
+	var sentences []string
+	for _, s := range strings.FieldsFunc(prompt, func(r rune) bool { return r == '.' || r == '?' }) {
+		sentences = append(sentences, strings.TrimSpace(s))
+	}
+	// Every intent's first phrase that contributes anything is in the
+	// prompt, as a sentence or the start of one.
 	for _, rt := range r.Intents() {
 		for _, phrase := range rt.Spec.Phrases {
-			if strings.Contains(phrase, "{") {
+			text := match.PromptText(phrase)
+			if text == "" {
 				continue
 			}
-			if !strings.Contains(prompt, strings.ToLower(phrase)) {
-				t.Errorf("prompt lacks %s's %q:\n%s", rt.Name, phrase, prompt)
+			if !slices.ContainsFunc(sentences, func(s string) bool { return s == text || strings.HasPrefix(s, text+" ") }) {
+				t.Errorf("prompt lacks %s's %q:\n%s", rt.Name, text, prompt)
 			}
 			break
 		}

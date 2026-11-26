@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -153,19 +154,18 @@ func New(routes []assistant.Route) *Matcher {
 	return m
 }
 
-// maxPromptWords caps Prompt so it stays well inside whisper's prompt
+// MaxPromptWords caps Prompt so it stays well inside whisper's prompt
 // window (half the 448-token text context) as commands are added.
-const maxPromptWords = 150
+const MaxPromptWords = 150
 
 // Prompt returns an initial prompt for speech-to-text that biases decoding
 // toward the command phrases, written as separate sentences, e.g. "What
-// time is it? Set a timer. Play." It is cut off at maxPromptWords, so every
+// time is it? Set a timer. Play." It is cut off at MaxPromptWords, so every
 // intent gets a fair share: phrases are taken round-robin across intents
 // (each intent's first phrase, then each one's second, …), deduplicated.
-// A template contributes its literal words before the first slot, without
-// trailing function words ("set a timer for {when}" becomes "Set a
-// timer."), and nothing if only question or function words remain ("what
-// is on the {list}").
+// Each phrase contributes PromptText. A template fragment that only
+// repeats the start of another sentence ("Set." next to "Set a timer.") is
+// dropped at the end.
 //
 // Sentences, not a comma-separated list: whisper continues the style of its
 // prompt, and after a list prompt greedy decoding looped ("what time is it,
@@ -173,8 +173,12 @@ const maxPromptWords = 150
 // at ~10x the latency.
 func (m *Matcher) Prompt() string {
 	// Candidate sentences per intent, in registration order.
+	type candidate struct {
+		text     string
+		fragment bool // from a template
+	}
 	var order []string
-	byIntent := make(map[string][]string)
+	byIntent := make(map[string][]candidate)
 	for _, p := range m.phrases {
 		text := promptText(p)
 		if text == "" {
@@ -183,63 +187,86 @@ func (m *Matcher) Prompt() string {
 		if _, ok := byIntent[p.intent]; !ok {
 			order = append(order, p.intent)
 		}
-		byIntent[p.intent] = append(byIntent[p.intent], text)
+		byIntent[p.intent] = append(byIntent[p.intent], candidate{text, p.template != nil})
 	}
 
-	var sentences []string
+	var chosen []candidate
 	seen := make(map[string]bool)
 	words := 0
 	for round := 0; ; round++ {
 		added := false
 		for _, intent := range order {
-			texts := byIntent[intent]
-			if round >= len(texts) {
+			cands := byIntent[intent]
+			if round >= len(cands) {
 				continue
 			}
 			added = true
-			text := texts[round]
-			fields := strings.Fields(text)
-			if seen[text] || words+len(fields) > maxPromptWords {
+			c := cands[round]
+			n := len(strings.Fields(c.text))
+			if seen[c.text] || words+n > MaxPromptWords {
 				continue
 			}
-			seen[text] = true
-			words += len(fields)
-			end := "."
-			if questionWords[fields[0]] {
-				end = "?"
-			}
-			sentences = append(sentences, strings.ToUpper(text[:1])+text[1:]+end)
+			seen[c.text] = true
+			words += n
+			chosen = append(chosen, c)
 		}
 		if !added {
 			break
 		}
 	}
+
+	var sentences []string
+	for _, c := range chosen {
+		if c.fragment && slices.ContainsFunc(chosen, func(o candidate) bool {
+			return o.text != c.text && strings.HasPrefix(o.text, c.text+" ")
+		}) {
+			continue
+		}
+		end := "."
+		if questionWords[strings.Fields(c.text)[0]] {
+			end = "?"
+		}
+		sentences = append(sentences, strings.ToUpper(c.text[:1])+c.text[1:]+end)
+	}
 	return strings.Join(sentences, " ")
 }
 
-// promptText is a phrase as it goes into the prompt (lowercase, without
-// slots), or "" for a template fragment that would only add noise.
+// PromptText is what a phrase contributes to Prompt: the phrase in
+// lowercase, or for a template its literal words before the first slot
+// without trailing function words ("set a timer for {when}" becomes "set a
+// timer"). A verb keeps its particle ("put on {query}" stays "put on"). A
+// template gives "" if only question or function words remain ("what is on
+// the {list}").
+func PromptText(text string) string {
+	p := phrase{text: text}
+	if slotPattern.MatchString(text) {
+		p.template = []element{}
+	}
+	return promptText(p)
+}
+
 func promptText(p phrase) string {
 	text := p.text
 	if p.template != nil {
 		text = text[:slotPattern.FindStringIndex(text)[0]]
 	}
 	fields := strings.Fields(strings.ToLower(text))
-	if p.template != nil {
-		for len(fields) > 0 && functionWords[fields[len(fields)-1]] {
-			fields = fields[:len(fields)-1]
-		}
-		meaningful := false
-		for _, f := range fields {
-			if !functionWords[f] && !questionWords[f] {
-				meaningful = true
-			}
-		}
-		if !meaningful {
-			return ""
+	if p.template == nil {
+		return strings.Join(fields, " ")
+	}
+	all := fields
+	for len(fields) > 0 && functionWords[fields[len(fields)-1]] {
+		fields = fields[:len(fields)-1]
+	}
+	if len(fields) == 1 && len(all) > 1 && particles[all[1]] {
+		fields = all[:2] // "put on", "turn off"
+	}
+	for _, f := range fields {
+		if !functionWords[f] && !questionWords[f] {
+			return strings.Join(fields, " ")
 		}
 	}
-	return strings.Join(fields, " ")
+	return ""
 }
 
 // functionWords are stripped from the end of a template's literal words.
@@ -248,6 +275,10 @@ var functionWords = map[string]bool{
 	"to": true, "for": true, "at": true, "in": true, "on": true, "of": true, "off": true,
 	"from": true, "with": true, "by": true, "about": true, "called": true, "and": true,
 }
+
+// particles complete a phrasal verb, so they are kept right after a lone
+// verb even though they are also function words.
+var particles = map[string]bool{"on": true, "off": true, "in": true, "up": true, "down": true}
 
 var questionWords = map[string]bool{
 	"what": true, "when": true, "where": true, "who": true, "why": true, "how": true,

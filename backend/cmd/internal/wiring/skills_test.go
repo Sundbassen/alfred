@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -62,6 +63,29 @@ func TestMusicNeedsSpotifyConfigAndLogin(t *testing.T) {
 	}
 	if rec, err := match.New(r.Intents()).Recognize(context.Background(), "Stop."); err != nil || rec.Intent != "stop" {
 		t.Errorf("\"Stop.\" = %+v, %v; want the stop intent", rec, err)
+	}
+}
+
+// fakeWpctl is an executable to configure as wpctl; registering the volume
+// skill only checks that it exists.
+func fakeWpctl(t *testing.T) volumeservice.WpctlConfig {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "wpctl")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return volumeservice.WpctlConfig{Path: path}
+}
+
+func TestVolumeNeedsWpctl(t *testing.T) {
+	if got := intents(t, Config{}); got["volume_up"] {
+		t.Error("volume registered without wpctl")
+	}
+	if got := intents(t, Config{Volume: volumeservice.WpctlConfig{Path: filepath.Join(t.TempDir(), "missing")}}); got["volume_up"] {
+		t.Error("volume registered with a missing wpctl")
+	}
+	if got := intents(t, Config{Volume: fakeWpctl(t)}); !got["volume_up"] {
+		t.Error("volume not registered with wpctl")
 	}
 }
 
@@ -162,11 +186,10 @@ func TestPromptCoversEveryIntent(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := assistant.NewRouter()
-	// Every skill, whatever this machine has installed (the wpctl path is
-	// not run while registering).
+	// Every skill, whatever this machine has installed.
 	cfg := Config{
 		Spotify: musicservice.SpotifyConfig{ClientID: "cid", TokenFile: token},
-		Volume:  volumeservice.WpctlConfig{Path: "/usr/bin/wpctl"},
+		Volume:  fakeWpctl(t),
 	}
 	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatal(err)
@@ -201,7 +224,7 @@ func TestPromptCoversEveryIntent(t *testing.T) {
 
 func TestHelpAndRepeat(t *testing.T) {
 	r := assistant.NewRouter()
-	cfg := Config{Volume: volumeservice.WpctlConfig{Path: "/usr/bin/wpctl"}}
+	cfg := Config{Volume: fakeWpctl(t)}
 	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatal(err)
 	}

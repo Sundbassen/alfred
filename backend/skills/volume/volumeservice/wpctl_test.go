@@ -4,6 +4,10 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"gitlab.com/tozd/go/errors"
+
+	"github.com/sundbassen/alfred/internal/platform/fault"
 )
 
 func TestParseVolume(t *testing.T) {
@@ -51,5 +55,17 @@ func TestCommands(t *testing.T) {
 	}
 	if strings.Join(calls, "|") != strings.Join(want, "|") {
 		t.Errorf("calls = %q, want %q", calls, want)
+	}
+}
+
+func TestCommandFailure(t *testing.T) {
+	// "false" exits 1 without output, like wpctl with no PipeWire running.
+	w := NewWpctl(WpctlConfig{Path: "false"})
+	err := w.SetMute(context.Background(), true)
+	if !errors.Is(err, fault.ErrServiceUnavailable) {
+		t.Errorf("SetMute with a failing wpctl: %v, want ErrServiceUnavailable", err)
+	}
+	if err != nil && strings.Contains(err.Error(), "()") {
+		t.Errorf("error %q has an empty stderr part", err)
 	}
 }

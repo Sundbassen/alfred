@@ -2,9 +2,10 @@ package volume
 
 import (
 	"context"
-	"errors"
 	"math"
 	"testing"
+
+	"gitlab.com/tozd/go/errors"
 
 	"github.com/sundbassen/alfred/internal/assistant"
 	"github.com/sundbassen/alfred/internal/assistant/match"

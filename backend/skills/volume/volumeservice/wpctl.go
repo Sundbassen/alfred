@@ -48,7 +48,11 @@ func NewWpctl(cfg WpctlConfig) *Wpctl {
 		cmd.Stderr = &stderr
 		out, err := cmd.Output()
 		if err != nil {
-			return nil, errors.Prefix(errors.WithMessagef(err, "wpctl %s (%s)", strings.Join(args, " "), strings.TrimSpace(stderr.String())), fault.ErrServiceUnavailable)
+			msg := "wpctl " + strings.Join(args, " ")
+			if s := strings.TrimSpace(stderr.String()); s != "" {
+				msg += " (" + s + ")"
+			}
+			return nil, errors.Prefix(errors.WithMessage(err, msg), fault.ErrServiceUnavailable)
 		}
 		return out, nil
 	}}

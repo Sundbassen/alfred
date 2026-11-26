@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -57,7 +58,7 @@ type IntentModelConfig struct {
 //	ALFRED_SPOTIFY_CLIENT_ID   Spotify app client ID (empty: no music skill)
 //	ALFRED_SPOTIFY_TOKEN_FILE  login from make spotify-login (default ~/.config/alfred/spotify-token.json)
 //	ALFRED_SPOTIFY_DEVICE      Spotify Connect name of this speaker (default "Alfred")
-//	ALFRED_WPCTL               wpctl binary for the volume skill (default: wpctl on PATH; none: no volume skill)
+//	ALFRED_WPCTL               wpctl binary for the volume skill (default: wpctl on PATH; not found: no volume skill)
 //	ALFRED_LLAMA_SERVER        llama-server binary (default .deps/llama.cpp/build-server/bin/llama-server; set by make)
 //	ALFRED_INTENT_MODEL_FILE   local intent model (default models/llm/<Ministral GGUF>; missing: no model tier)
 //	ALFRED_INTENT_MODEL_THREADS  CPU threads for the model (default 4)
@@ -122,6 +123,10 @@ func RegisterSkills(ctx context.Context, r *assistant.Router, cfg Config, out *a
 func registerVolume(r *assistant.Router, cfg volumeservice.WpctlConfig, logger *slog.Logger) {
 	if cfg.Path == "" {
 		logger.Info("Volume skill disabled: wpctl not found (install WirePlumber, or set ALFRED_WPCTL)")
+		return
+	}
+	if _, err := exec.LookPath(cfg.Path); err != nil {
+		logger.Warn("Volume skill disabled: ALFRED_WPCTL is not an executable", slog.String("path", cfg.Path), slog.Any("error", err))
 		return
 	}
 	volume.Register(r, volumeservice.NewWpctl(cfg))

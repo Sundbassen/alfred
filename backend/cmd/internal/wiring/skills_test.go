@@ -6,6 +6,8 @@ import (
 	"io"
 	"log/slog"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"golang.org/x/oauth2"
@@ -151,4 +153,42 @@ func TestTimersSurviveARestart(t *testing.T) {
 	if got := ask(t, start(), "How much time is left?"); got != "You have no timers, alarms or reminders." {
 		t.Errorf("after cancel and restart: %q", got)
 	}
+}
+
+func TestPromptCoversEveryIntent(t *testing.T) {
+	token := filepath.Join(t.TempDir(), "token.json")
+	if err := musicservice.SaveToken(token, &oauth2.Token{AccessToken: "a", RefreshToken: "r"}); err != nil {
+		t.Fatal(err)
+	}
+	r := assistant.NewRouter()
+	cfg := Config{Spotify: musicservice.SpotifyConfig{ClientID: "cid", TokenFile: token}}
+	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), slog.New(slog.DiscardHandler)); err != nil {
+		t.Fatal(err)
+	}
+	prompt := strings.ToLower(match.New(r.Intents()).Prompt())
+	if words := len(strings.Fields(prompt)); words > match.MaxPromptWords {
+		t.Errorf("prompt has %d words, want at most %d", words, match.MaxPromptWords)
+	}
+	var sentences []string
+	for _, s := range strings.FieldsFunc(prompt, func(r rune) bool { return r == '.' || r == '?' }) {
+		sentences = append(sentences, strings.TrimSpace(s))
+	}
+	// Every intent's first phrase that contributes anything is in the
+	// prompt: a plain phrase as a sentence, a template fragment as a
+	// sentence or the start of one.
+	for _, rt := range r.Intents() {
+		for _, phrase := range rt.Spec.Phrases {
+			text := match.PromptText(phrase)
+			if text == "" {
+				continue
+			}
+			if !slices.ContainsFunc(sentences, func(s string) bool {
+				return s == text || strings.Contains(phrase, "{") && strings.HasPrefix(s, text+" ")
+			}) {
+				t.Errorf("prompt lacks %s's %q:\n%s", rt.Name, text, prompt)
+			}
+			break
+		}
+	}
+	t.Logf("%d words: %s", len(strings.Fields(prompt)), prompt)
 }

@@ -90,13 +90,81 @@ func TestPrompt(t *testing.T) {
 		t.Errorf("empty matcher Prompt() = %q, want empty", got)
 	}
 
+	// Templates: the literal words before the first slot, without trailing
+	// function words; fragments of only question or function words are
+	// left out.
+	tm := New(routes(
+		route("timer", "set a timer for {when}", "set a {when} timer"),
+		route("list", "what is on the {list}", "add {items} to the {list}"),
+		route("play", "play {query}", "play some {query}"),
+	))
+	if got, want := tm.Prompt(), "Set a timer. Add. Play."; got != want {
+		t.Errorf("templates: Prompt() = %q, want %q", got, want)
+	}
+
 	var many []string
 	for i := range 100 {
 		many = append(many, strings.Repeat("word ", 3)+strconv.Itoa(i))
 	}
 	words := len(strings.Fields(New(routes(route("many", many...))).Prompt()))
-	if words > maxPromptWords {
-		t.Errorf("long Prompt() has %d words, want at most %d", words, maxPromptWords)
+	if words > MaxPromptWords {
+		t.Errorf("long Prompt() has %d words, want at most %d", words, MaxPromptWords)
+	}
+}
+
+func TestPromptIsFair(t *testing.T) {
+	// An intent with many phrases registered first must not crowd out the
+	// intents after it.
+	var many []string
+	for i := range 100 {
+		many = append(many, "turn on lamp number "+strconv.Itoa(i))
+	}
+	p := New(routes(route("lamps", many...), route("time", "what time is it"), route("weather", "what is the weather"))).Prompt()
+	for _, want := range []string{"Turn on lamp number 0.", "What time is it?", "What is the weather?"} {
+		if !strings.Contains(p, want) {
+			t.Errorf("Prompt() lacks %q:\n%s", want, p)
+		}
+	}
+	if words := len(strings.Fields(p)); words > MaxPromptWords {
+		t.Errorf("%d words, want at most %d", words, MaxPromptWords)
+	}
+}
+
+func TestPromptText(t *testing.T) {
+	for _, tc := range []struct{ phrase, want string }{
+		{"What time is it", "what time is it"},
+		{"set a timer for {when}", "set a timer"},
+		{"put on {query}", "put on"},
+		{"turn off the {light}", "turn off"},
+		{"play {query} in the {speaker}", "play"},
+		{"what is on the {list}", ""},
+		{"add {items}", "add"},
+	} {
+		if got := PromptText(tc.phrase); got != tc.want {
+			t.Errorf("PromptText(%q) = %q, want %q", tc.phrase, got, tc.want)
+		}
+	}
+}
+
+func TestPromptDropsRepeatedFragments(t *testing.T) {
+	// "Set." only repeats the start of "Set a timer."; a plain phrase is
+	// kept even when it is the start of another ("Stop." and "Stop the
+	// music." are both commands).
+	m := New(routes(
+		route("timer", "set a timer for {when}"),
+		route("alarm", "set {when}"),
+		route("stop", "stop", "stop the music"),
+	))
+	if got, want := m.Prompt(), "Set a timer. Stop. Stop the music."; got != want {
+		t.Errorf("Prompt() = %q, want %q", got, want)
+	}
+	// A fragment that is also a plain phrase stays, whichever comes first.
+	m = New(routes(
+		route("play", "play {query}", "play a radio with {artists}"),
+		route("resume", "play"),
+	))
+	if got, want := m.Prompt(), "Play. Play a radio."; got != want {
+		t.Errorf("Prompt() = %q, want %q", got, want)
 	}
 }
 
@@ -158,7 +226,9 @@ func TestTemplateNeedsSlotWords(t *testing.T) {
 
 func TestPromptTemplates(t *testing.T) {
 	m := New(routes(route("play", "play {query}", "play a radio with {artists}"), route("pause", "pause")))
-	if got, want := m.Prompt(), "Play. Play a radio with. Pause."; got != want {
+	// The fragment "Play." goes, since "Play a radio." starts with it, so
+	// play's first sentence is "Play a radio."
+	if got, want := m.Prompt(), "Play a radio. Pause."; got != want {
 		t.Errorf("Prompt() = %q, want %q", got, want)
 	}
 }

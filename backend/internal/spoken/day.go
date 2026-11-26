@@ -5,11 +5,13 @@ import (
 	"time"
 )
 
-// ParseDay parses a day in the coming week, normalized: "" or "today",
-// "tonight", "tomorrow", "the day after tomorrow", a weekday ("friday", "on
-// friday", "this friday"; "next friday" skips this week's), "this weekend"
-// (Saturday). It returns midnight of that day in now's location; a weekday
-// that is today means today.
+// ParseDay parses a day in the coming week, normalized: "" or "today"
+// ("tonight", "now"), "tomorrow", "the day after tomorrow", a weekday
+// ("friday", "on friday", "this friday"), or "this weekend" (Saturday, or
+// today on a Sunday). It returns midnight of that day in now's location.
+// A weekday that is today means today; "next friday" means the next one
+// after today (on a Friday, a week ahead). The filler words "on", "this",
+// "the", "for" and "in" are ignored wherever they are.
 func ParseDay(text string, now time.Time) (time.Time, bool) {
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	next := false
@@ -31,6 +33,9 @@ func ParseDay(text string, now time.Time) (time.Time, bool) {
 	case "day after tomorrow":
 		return today.AddDate(0, 0, 2), !next
 	case "weekend":
+		if today.Weekday() == time.Sunday && !next {
+			return today, true
+		}
 		words = []string{"saturday"}
 	}
 	if len(words) != 1 {

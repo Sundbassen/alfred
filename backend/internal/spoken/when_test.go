@@ -99,3 +99,47 @@ func TestFormat(t *testing.T) {
 		t.Errorf("SecondPerson = %q", got)
 	}
 }
+
+func TestFormatRemaining(t *testing.T) {
+	for _, tc := range []struct {
+		d    time.Duration
+		want string
+	}{
+		{500 * time.Millisecond, "less than a second"},
+		{90 * time.Second, "1 minute and 30 seconds"},
+		{2*time.Minute + 29*time.Second, "2 minutes"},
+		{2*time.Minute + 30*time.Second, "3 minutes"},
+	} {
+		if got := FormatRemaining(tc.d); got != tc.want {
+			t.Errorf("FormatRemaining(%s) = %q, want %q", tc.d, got, tc.want)
+		}
+	}
+}
+
+func TestFormatClock(t *testing.T) {
+	if got := FormatClock(at10.Add(9*time.Hour), at10); got != "19:00" {
+		t.Errorf("same day: %q", got)
+	}
+	if got := FormatClock(at10.Add(21*time.Hour), at10); got != "07:00 tomorrow" {
+		t.Errorf("next day: %q", got)
+	}
+}
+
+func TestJoin(t *testing.T) {
+	for _, tc := range []struct {
+		parts   []string
+		and, or string
+	}{
+		{nil, "", ""},
+		{[]string{"a"}, "a", "a"},
+		{[]string{"a", "b"}, "a and b", "a or b"},
+		{[]string{"a", "b", "c"}, "a, b and c", "a, b or c"},
+	} {
+		if got := JoinAnd(tc.parts); got != tc.and {
+			t.Errorf("JoinAnd(%q) = %q, want %q", tc.parts, got, tc.and)
+		}
+		if got := JoinOr(tc.parts); got != tc.or {
+			t.Errorf("JoinOr(%q) = %q, want %q", tc.parts, got, tc.or)
+		}
+	}
+}

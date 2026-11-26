@@ -34,6 +34,29 @@ The satellite listens on port 6053 (`PORT=…` to change it) and announces itsel
 over mDNS as `alfred-laptop` (`NAME=…`). This version talks plaintext; the ESP32
 speakers will use ESPHome's encryption.
 
+## The hub
+
+The hub (`backend/cmd/hub`) connects to the satellites, answers what they hear
+with Alfred's skills, and serves the spoken replies for them to play. In a
+second terminal:
+
+```sh
+cd backend
+ALFRED_SATELLITES=127.0.0.1:6053 make hub-run      # V=1 for debug logs
+```
+
+- `ALFRED_SATELLITES`: comma-separated `host:port`, or `host:port#key` for a
+  device with an API encryption key (ESPHome speakers).
+- `ALFRED_HUB_MEDIA_ADDR`: where satellites fetch replies from (default
+  `:7301`). The hub gives each satellite URLs with the address it reached the
+  satellite from, so satellites must be able to reach this port.
+- The other settings (database, local model, Spotify, weather) are the same as
+  for `alfred`.
+
+**For now:** timers ring on every connected satellite, and follow-up
+questions, "repeat that" and the list just used are shared by all satellites.
+Per-satellite sessions come with the full hub.
+
 **Wake word sensitivity:** `linux/hey_alfred.json` sets `probability_cutoff` to
 0.03, the threshold Alfred's own detector uses for this model
 (`backend/internal/app/app.go`). Tune it the same way (`make wakestats` in

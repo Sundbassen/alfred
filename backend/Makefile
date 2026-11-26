@@ -1,4 +1,4 @@
-.PHONY: build all install clean prereqs run review replay wakestats test vet layers spotify-login sqlc sqlc-diff proto proto-diff
+.PHONY: build all install clean prereqs run hub-run review replay wakestats test vet layers spotify-login sqlc sqlc-diff proto proto-diff
 
 # Native dependencies live in a project-local, gitignored directory (not
 # /tmp, which is wiped on reboot). Override with make install DEPS_DIR=...
@@ -121,7 +121,13 @@ build:
 		exit 1; \
 	fi
 	go build -o alfred ./cmd/alfred/main.go
+	go build -o hub ./cmd/hub
 	@echo "Build complete!"
+
+# Run the hub for satellites (#54): ALFRED_SATELLITES=127.0.0.1:6053 make hub-run
+# (see satellite/README.md). V=1 adds debug logs.
+hub-run: build
+	./hub $(if $(V),-v)
 
 # Build and run. SAVE=1 saves wake word clips, near misses and commands to
 # .recordings/{wakeword,commands} (review wake word clips with make review).

@@ -407,3 +407,14 @@ func TestNoModelNoAnswers(t *testing.T) {
 		t.Error("answer skill registered without a model")
 	}
 }
+
+func TestSatellitesFromEnv(t *testing.T) {
+	got := satellitesFromEnv(" 192.168.1.20:6053 ,127.0.0.1:6054#px7tsbK3C7bpXHr2OevEV2ZMg/FXNUw4ZJUmhRZhFHo=,")
+	if len(got) != 2 || got[0].Address != "192.168.1.20:6053" || got[0].Key != "" ||
+		got[1].Address != "127.0.0.1:6054" || got[1].Key != "px7tsbK3C7bpXHr2OevEV2ZMg/FXNUw4ZJUmhRZhFHo=" {
+		t.Errorf("satellites = %+v", got)
+	}
+	if got := satellitesFromEnv(""); got != nil {
+		t.Errorf("empty = %+v", got)
+	}
+}

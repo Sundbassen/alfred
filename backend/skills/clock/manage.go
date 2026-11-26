@@ -283,7 +283,7 @@ func (e entry) status(now time.Time) string {
 func (h *handler) snooze(ctx context.Context, i Snooze) (assistant.Response, error) {
 	d := snoozeFor
 	if i.When != "" {
-		w, err := spoken.ParseWhen(i.When, h.now())
+		w, err := spoken.ParseWhen(match.Normalize(i.When), h.now())
 		if err != nil || w.Duration <= 0 || w.Duration > maxDuration {
 			return assistant.Response{}, &assistant.SpokenError{
 				Text: "Sorry, how long should I snooze?",
@@ -305,7 +305,7 @@ func (h *handler) snooze(ctx context.Context, i Snooze) (assistant.Response, err
 func (h *handler) extendTimer(ctx context.Context, i ExtendTimer) (assistant.Response, error) {
 	now := h.now()
 	var amount []string
-	for _, w := range strings.Fields(i.Amount) {
+	for _, w := range strings.Fields(match.Normalize(i.Amount)) {
 		if w != "more" && w != "another" && w != "extra" {
 			amount = append(amount, w)
 		}

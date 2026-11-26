@@ -12,6 +12,7 @@ import (
 	"gitlab.com/tozd/go/errors"
 
 	"github.com/sundbassen/alfred/internal/assistant"
+	"github.com/sundbassen/alfred/internal/assistant/match"
 	"github.com/sundbassen/alfred/internal/platform/fault"
 	"github.com/sundbassen/alfred/internal/spoken"
 )
@@ -110,7 +111,7 @@ func (h *handler) change(ctx context.Context, delta float64) (assistant.Response
 }
 
 func (h *handler) set(ctx context.Context, i Set) (assistant.Response, error) {
-	level, ok := parseLevel(i.Level)
+	level, ok := parseLevel(match.Normalize(i.Level))
 	if !ok {
 		return assistant.Response{}, &assistant.SpokenError{
 			Text: "Sorry, say a volume from 0 to 10.",

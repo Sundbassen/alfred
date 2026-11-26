@@ -4,6 +4,19 @@
 
 package storedb
 
+type List struct {
+	ID        int64
+	Name      string
+	CreatedAt int64
+}
+
+type ListItem struct {
+	ID        int64
+	ListID    int64
+	Text      string
+	CreatedAt int64
+}
+
 type Timer struct {
 	ID       int64
 	Kind     string

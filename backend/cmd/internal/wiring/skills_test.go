@@ -228,7 +228,7 @@ func TestHelpAndRepeat(t *testing.T) {
 	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatal(err)
 	}
-	want := "I can tell you the time and date, set timers and reminders, and change the volume."
+	want := "I can tell you the time and date, set timers and reminders, change the volume, and keep lists."
 	if got := ask(t, r, "What can you do?"); got != want {
 		t.Errorf("help: %q, want %q", got, want)
 	}
@@ -289,6 +289,84 @@ func TestSleepTimerPhrasesBeatClockCancel(t *testing.T) {
 		"Stop the music in 20 minutes.":     "music_sleep",
 		"Set a sleep timer for 30 minutes.": "music_sleep",
 		"Set a timer for 30 minutes.":       "timer_set",
+	} {
+		if rec, err := m.Recognize(context.Background(), transcript); err != nil || rec.Intent != want {
+			t.Errorf("%q: %+v, %v; want %s", transcript, rec, err, want)
+		}
+	}
+}
+
+func TestListsEndToEnd(t *testing.T) {
+	r := assistant.NewRouter()
+	logger := slog.New(slog.DiscardHandler)
+	cfg := Config{IntentModel: IntentModelConfig{Server: filepath.Join(t.TempDir(), "llama-server"), ModelFile: "missing.gguf"}}
+	db := testDB(t)
+	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), db, logger); err != nil {
+		t.Fatal(err)
+	}
+	a, err := NewAssistant(r, cfg, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	for _, step := range [][2]string{
+		{"Add milk, eggs and bread to the shopping list.", "You don't have a list called shopping. Should I create it?"},
+		{"Yes.", "Added milk, eggs and bread to your shopping list."},
+		// Timer phrases still win over "add {items} to the {list}".
+		{"Set a timer for 10 minutes.", "Timer set for 10 minutes."},
+		{"Add 5 minutes to the timer.", "Your timer now has 15 minutes left."},
+		{"What's on my shopping list?", "Your shopping list has 3 items: milk, eggs and bread."},
+		{"Delete the shopping list.", "Delete your shopping list and its 3 items?"},
+		{"Never mind.", ""},
+		{"What lists do I have?", "You have one list: shopping."},
+	} {
+		reply, err := a.Respond(context.Background(), step[0])
+		if err != nil {
+			t.Fatalf("%q: %v", step[0], err)
+		}
+		if reply.Text != step[1] {
+			t.Errorf("%q:\n got %q\nwant %q", step[0], reply.Text, step[1])
+		}
+	}
+}
+
+func TestListPhrasesDontCatchOtherCommands(t *testing.T) {
+	token := filepath.Join(t.TempDir(), "token.json")
+	if err := musicservice.SaveToken(token, &oauth2.Token{AccessToken: "a", RefreshToken: "r"}); err != nil {
+		t.Fatal(err)
+	}
+	r := assistant.NewRouter()
+	cfg := Config{Spotify: musicservice.SpotifyConfig{ClientID: "cid", TokenFile: token}, Volume: fakeWpctl(t)}
+	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), slog.New(slog.DiscardHandler)); err != nil {
+		t.Fatal(err)
+	}
+	m := match.New(r.Intents())
+	// Commands for other skills, which short list templates ("add {items}",
+	// "read the {list}") used to take as list commands.
+	for _, transcript := range []string{
+		"Add 5 minutes.", "Add 5 minutes to timer.", "Add an alarm for 7 am.", "Remove the alarm.",
+		"Read the news.", "Put daft punk on the kitchen speaker.",
+	} {
+		if rec, err := m.Recognize(context.Background(), transcript); err == nil && strings.HasPrefix(rec.Intent, "list_") {
+			t.Errorf("%q went to %s (%q)", transcript, rec.Intent, rec.Phrase)
+		}
+	}
+	// Known limit of the fuzzy tier: one word off a phrase still scores 0.8
+	// ("what is on the radio" against "what is on the list"). It is no
+	// longer a full template match, at least.
+	if rec, err := m.Recognize(context.Background(), "What's on the radio?"); err == nil && rec.Score >= 1 {
+		t.Errorf("what's on the radio: full match %+v", rec)
+	}
+	for transcript, want := range map[string]string{
+		"Add milk to the shopping list.":      "list_add",
+		"Add milk to shopping list.":          "list_add",
+		"Add milk to it.":                     "list_add",
+		"Remove milk from the shopping list.": "list_remove",
+		"What's on my shopping list?":         "list_read",
+		"Read the list.":                      "list_read",
+		"Clear the packing list.":             "list_clear",
+		"Delete the list.":                    "list_delete",
+		"Add 5 minutes to the timer.":         "timer_extend",
 	} {
 		if rec, err := m.Recognize(context.Background(), transcript); err != nil || rec.Intent != want {
 			t.Errorf("%q: %+v, %v; want %s", transcript, rec, err, want)

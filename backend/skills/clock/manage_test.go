@@ -204,6 +204,18 @@ func TestSnooze(t *testing.T) {
 	})
 }
 
+func TestSlotsWithCommas(t *testing.T) {
+	// Template slots keep the commas whisper writes (for lists); amounts
+	// and durations still parse.
+	synctest.Test(t, func(t *testing.T) {
+		r, _, _ := newManaged(t)
+		say(t, r, "Set a timer for 1 hour, 30 minutes.")
+		if got := say(t, r, "Add 1 hour, 30 minutes to the timer."); got != "Your timer now has 3 hours left." {
+			t.Errorf("extend: %q", got)
+		}
+	})
+}
+
 func TestExtendTimer(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		r, timers, out := newManaged(t)

@@ -326,16 +326,24 @@ func ack(text string, err error) (assistant.Response, error) {
 	return assistant.Response{Text: text}, nil
 }
 
-// splitArtists splits "daft punk and justice" into its artists. The
-// transcript is normalized, so punctuation (commas) is already gone: "and"
-// is the separator.
+// splitArtists splits "daft punk, justice and air" into its artists: slots
+// keep the commas (match), and "and" separates too.
 func splitArtists(s string) []string {
-	var artists []string
-	for _, a := range strings.Split(s, " and ") {
-		if a = strings.TrimSpace(a); a != "" {
-			artists = append(artists, a)
+	var artists, words []string
+	flush := func() {
+		if len(words) > 0 {
+			artists = append(artists, strings.Join(words, " "))
+			words = nil
 		}
 	}
+	for _, w := range strings.Fields(strings.ReplaceAll(s, ",", " , ")) {
+		if w == "," || w == "and" {
+			flush()
+			continue
+		}
+		words = append(words, w)
+	}
+	flush()
 	return artists
 }
 

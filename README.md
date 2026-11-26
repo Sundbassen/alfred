@@ -129,6 +129,15 @@ One command, phrased three ways. What you say decides which it is:
 
 It repeats every 10 seconds, for up to 5 minutes, until you say "hey alfred, stop". "How much time is left?" and "what alarms do I have?" list them; "cancel the timer", "cancel my 7 o'clock alarm", "cancel the reminder to call mom" and "cancel all timers" cancel them. "Snooze" (9 minutes, or "snooze for 5 minutes") puts a ringing one off; "add 5 minutes to the timer" extends one. A clock time without am/pm means the next one: at 22:00, "at 7" is 07:00 tomorrow; at 10:00, it's 19:00. Timers are saved in Alfred's local database (`~/.local/state/alfred/alfred.db`, or `ALFRED_DB`), so they survive a restart. One that came due while Alfred was off goes off late if it's less than an hour overdue; older ones are dropped.
 
+## Lists
+
+Lists you create and fill by voice, kept in the local database (`~/.local/state/alfred/alfred.db`) for now; a cloud backend that shares them with your phone is planned ([#39](https://github.com/Sundbassen/alfred/issues/39)).
+
+- "create a list called shopping", "start a packing list"
+- "add milk, eggs and bread to the shopping list", "put socks on my packing list"; "add milk to the list" (or "to it") goes to the list you used in the last 5 minutes, or your only list, or Alfred asks which one
+- "remove eggs from the shopping list", "what's on my shopping list", "clear the shopping list", "delete the packing list" (Alfred asks before throwing items away), "what lists do I have"
+- Adding to a list that doesn't exist: "You don't have a list called camping. Should I create it?"
+
 ## Music (Spotify)
 
 The music skill plays Spotify on Alfred's own speaker: "play daft punk", "play a radio with daft punk and justice" (a shuffled mix of only those artists), "pause", "play" (resume), "next song", "go back", "what's playing", "shuffle" / "shuffle off", and a sleep timer: "stop the music in 30 minutes".

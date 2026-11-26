@@ -149,7 +149,7 @@ func registerMusic(r *assistant.Router, cfg musicservice.SpotifyConfig, logger *
 	if err != nil {
 		return nil, errors.WithMessage(err, "set up Spotify")
 	}
-	music.Register(r, player)
+	music.Register(r, player, logger)
 	logger.Info("Music skill enabled", slog.String("provider", "spotify"), slog.String("device", cfg.Device))
 	return player, nil
 }

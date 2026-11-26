@@ -29,6 +29,7 @@ type fakeAPI struct {
 	search  func(q searchQuery) string
 	plays   []string // recorded player requests: "METHOD path?device body"
 	status  int      // if set, every response has this status
+	current string   // currently-playing JSON ("" → 204 No Content)
 }
 
 type searchQuery struct{ q, typ, offset string }
@@ -47,9 +48,19 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, f.search(searchQuery{q: v.Get("q"), typ: v.Get("type"), offset: v.Get("offset")}))
 	case r.URL.Path == "/me/player/devices":
 		fmt.Fprint(w, f.devices)
+	case r.URL.Path == "/me/player/currently-playing":
+		if f.current == "" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		fmt.Fprint(w, f.current)
 	case strings.HasPrefix(r.URL.Path, "/me/player/"):
 		body, _ := io.ReadAll(r.Body)
-		f.plays = append(f.plays, fmt.Sprintf("%s %s?%s %s", r.Method, r.URL.Path, r.URL.Query().Get("device_id"), body))
+		query := r.URL.Query().Get("device_id")
+		if state := r.URL.Query().Get("state"); state != "" {
+			query += "&state=" + state
+		}
+		f.plays = append(f.plays, fmt.Sprintf("%s %s?%s %s", r.Method, r.URL.Path, query, body))
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		f.t.Errorf("unexpected request %s %s", r.Method, r.URL)
@@ -261,5 +272,34 @@ func TestNoLoginIsUnauthorized(t *testing.T) {
 	_, err := NewSpotify(SpotifyConfig{ClientID: "cid", TokenFile: filepath.Join(t.TempDir(), "missing.json"), Device: "Alfred"})
 	if !errors.Is(err, fault.ErrUnauthorized) {
 		t.Errorf("error = %v, want ErrUnauthorized", err)
+	}
+}
+
+func TestNowPlaying(t *testing.T) {
+	api := &fakeAPI{t: t, devices: devices,
+		current: `{"is_playing":true,"item":{"name":"One More Time","artists":[{"name":"Daft Punk"}]}}`}
+	s := newTestSpotify(t, api)
+	item, err := s.NowPlaying(context.Background(), music.Target{})
+	if err != nil || item != (music.Item{Title: "One More Time", Artist: "Daft Punk"}) {
+		t.Errorf("NowPlaying = %+v, %v", item, err)
+	}
+	api.current = ""
+	if _, err := s.NowPlaying(context.Background(), music.Target{}); !errors.Is(err, fault.ErrNotFound) {
+		t.Errorf("nothing playing: %v, want ErrNotFound", err)
+	}
+	api.current = `{"is_playing":false,"item":{"name":"One More Time"}}`
+	if _, err := s.NowPlaying(context.Background(), music.Target{}); !errors.Is(err, fault.ErrNotFound) {
+		t.Errorf("paused: %v, want ErrNotFound", err)
+	}
+}
+
+func TestSetShuffle(t *testing.T) {
+	api := &fakeAPI{t: t, devices: devices}
+	s := newTestSpotify(t, api)
+	if err := s.SetShuffle(context.Background(), music.Target{}, true); err != nil {
+		t.Fatal(err)
+	}
+	if want := "PUT /me/player/shuffle?alfred1&state=true "; len(api.plays) != 1 || api.plays[0] != want {
+		t.Errorf("plays = %q, want %q", api.plays, want)
 	}
 }

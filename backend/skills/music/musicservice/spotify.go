@@ -197,6 +197,33 @@ func (s *Spotify) Previous(ctx context.Context, t music.Target) error {
 	return s.playerCall(ctx, t, http.MethodPost, "/me/player/previous", nil)
 }
 
+// NowPlaying returns the track playing on the account, on whichever device
+// (the target is not checked); fault.ErrNotFound when nothing is, or when it
+// is a podcast episode (Spotify reports no item for those unless asked).
+func (s *Spotify) NowPlaying(ctx context.Context, _ music.Target) (music.Item, error) {
+	var res struct {
+		IsPlaying bool   `json:"is_playing"`
+		Item      *track `json:"item"`
+	}
+	if err := s.call(ctx, http.MethodGet, "/me/player/currently-playing", nil, nil, &res); err != nil {
+		return music.Item{}, err
+	}
+	if !res.IsPlaying || res.Item == nil {
+		return music.Item{}, errors.WithMessage(fault.ErrNotFound, "nothing is playing")
+	}
+	return music.Item{Title: res.Item.Name, Artist: res.Item.firstArtist()}, nil
+}
+
+// SetShuffle turns shuffle on or off on the target's device.
+func (s *Spotify) SetShuffle(ctx context.Context, t music.Target, on bool) error {
+	id, err := s.deviceID(ctx, t)
+	if err != nil {
+		return err
+	}
+	return s.call(ctx, http.MethodPut, "/me/player/shuffle",
+		url.Values{"device_id": {id}, "state": {strconv.FormatBool(on)}}, nil, nil)
+}
+
 // playerCall runs a player command on the target's device.
 func (s *Spotify) playerCall(ctx context.Context, t music.Target, method, path string, body any) error {
 	id, err := s.deviceID(ctx, t)

@@ -6,12 +6,16 @@ package music
 
 import (
 	"context"
+	"log/slog"
 	"strings"
+	"sync"
+	"time"
 
 	"gitlab.com/tozd/go/errors"
 
 	"github.com/sundbassen/alfred/internal/assistant"
 	"github.com/sundbassen/alfred/internal/platform/fault"
+	"github.com/sundbassen/alfred/internal/spoken"
 )
 
 // Play is "play daft punk": search for something and play it.
@@ -49,6 +53,33 @@ type Previous struct{}
 
 func (Previous) IntentName() string { return "music_previous" }
 
+// NowPlaying is "what's playing".
+type NowPlaying struct{}
+
+func (NowPlaying) IntentName() string { return "music_now" }
+
+// Shuffle is "shuffle" / "shuffle on".
+type Shuffle struct{}
+
+func (Shuffle) IntentName() string { return "music_shuffle" }
+
+// NoShuffle is "shuffle off".
+type NoShuffle struct{}
+
+func (NoShuffle) IntentName() string { return "music_no_shuffle" }
+
+// Sleep is "stop the music in 30 minutes": a sleep timer.
+type Sleep struct {
+	When string `slot:"when"`
+}
+
+func (Sleep) IntentName() string { return "music_sleep" }
+
+// CancelSleep is "cancel the sleep timer".
+type CancelSleep struct{}
+
+func (CancelSleep) IntentName() string { return "music_sleep_cancel" }
+
 // Target says where to play. The zero value means this speaker. Later,
 // with several Alfred speakers in a home, Speaker names another one
 // ("kitchen"), resolved through the home registry.
@@ -75,14 +106,21 @@ type Player interface {
 	Resume(ctx context.Context, t Target) error
 	Next(ctx context.Context, t Target) error
 	Previous(ctx context.Context, t Target) error
+	// NowPlaying returns what is playing; fault.ErrNotFound if nothing.
+	NowPlaying(ctx context.Context, t Target) (Item, error)
+	SetShuffle(ctx context.Context, t Target, on bool) error
 }
 
 // maxMixArtists bounds a mix; more names are likely a misrecognition.
 const maxMixArtists = 5
 
-// Register adds the music intents to r, played by p.
-func Register(r *assistant.Router, p Player) {
-	h := &handler{player: p}
+// Register adds the music intents to r, played by p. logger reports what
+// happens in the background (the sleep timer).
+func Register(r *assistant.Router, p Player, logger *slog.Logger) {
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+	h := &handler{player: p, logger: logger, now: time.Now}
 
 	assistant.Handle(r, assistant.Spec{
 		Description: "Search for music and play it",
@@ -113,10 +151,92 @@ func Register(r *assistant.Router, p Player) {
 		Description: "Go back to the previous track",
 		Phrases:     []string{"previous", "previous song", "previous track", "go back", "last song"},
 	}, h.previous)
+	assistant.Handle(r, assistant.Spec{
+		Description: "Say which song is playing",
+		Phrases:     []string{"what is playing", "what song is this", "what is this song", "who is this", "what am i listening to"},
+	}, h.nowPlaying)
+	assistant.Handle(r, assistant.Spec{
+		Description: "Turn shuffle on",
+		Phrases:     []string{"shuffle", "shuffle on", "turn on shuffle", "shuffle the music"},
+	}, h.shuffle)
+	assistant.Handle(r, assistant.Spec{
+		Description: "Turn shuffle off",
+		Phrases:     []string{"shuffle off", "turn off shuffle", "stop shuffling"},
+	}, h.noShuffle)
+	assistant.Handle(r, assistant.Spec{
+		Description: "Stop the music after a while or at a time: a sleep timer",
+		Phrases: []string{
+			"stop the music in {when}", "pause the music in {when}", "turn off the music in {when}",
+			"stop the music at {when}", "sleep timer {when}",
+			"set a sleep timer for {when}", "sleep timer for {when}",
+		},
+	}, h.sleep)
+	assistant.Handle(r, assistant.Spec{
+		Description: "Cancel the sleep timer",
+		Phrases:     []string{"cancel the sleep timer", "turn off the sleep timer", "no sleep timer"},
+	}, h.cancelSleep)
 }
 
 type handler struct {
 	player Player
+	logger *slog.Logger
+	now    func() time.Time
+
+	mu         sync.Mutex
+	sleepTimer *time.Timer // the pending sleep timer, if any
+}
+
+func (h *handler) nowPlaying(ctx context.Context, _ NowPlaying) (assistant.Response, error) {
+	item, err := h.player.NowPlaying(ctx, Target{})
+	if errors.Is(err, fault.ErrNotFound) {
+		return assistant.Response{Text: "Nothing is playing."}, nil
+	}
+	if err != nil {
+		return assistant.Response{}, err
+	}
+	if item.Artist == "" {
+		return assistant.Response{Text: "This is " + item.Title + "."}, nil
+	}
+	return assistant.Response{Text: "This is " + item.Title + " by " + item.Artist + "."}, nil
+}
+
+// sleep pauses the music after the given time. It is kept in memory only:
+// the music doesn't resume after a restart either, and at shutdown it just
+// goes with the process. A new one replaces the pending one; pausing the
+// music cancels it.
+func (h *handler) sleep(ctx context.Context, in Sleep) (assistant.Response, error) {
+	now := h.now()
+	w, err := spoken.ParseWhen(in.When, now)
+	if err != nil {
+		return assistant.Response{}, err
+	}
+	h.mu.Lock()
+	if h.sleepTimer != nil {
+		h.sleepTimer.Stop()
+	}
+	var timer *time.Timer
+	timer = time.AfterFunc(w.At.Sub(now), func() {
+		h.mu.Lock()
+		if h.sleepTimer != timer { // replaced or cancelled as it fired
+			h.mu.Unlock()
+			return
+		}
+		h.sleepTimer = nil
+		h.mu.Unlock()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := h.player.Pause(ctx, Target{}); err != nil {
+			h.logger.Warn("Sleep timer could not pause the music", slog.String("error", err.Error()))
+			return
+		}
+		h.logger.Info("Sleep timer paused the music")
+	})
+	h.sleepTimer = timer
+	h.mu.Unlock()
+	if w.Duration > 0 {
+		return assistant.Response{Text: "OK, I'll stop the music in " + spoken.FormatDuration(w.Duration) + "."}, nil
+	}
+	return assistant.Response{Text: "OK, I'll stop the music at " + spoken.FormatClock(w.At, now) + "."}, nil
 }
 
 func (h *handler) play(ctx context.Context, in Play) (assistant.Response, error) {
@@ -151,8 +271,40 @@ func (h *handler) mix(ctx context.Context, in Mix) (assistant.Response, error) {
 	return assistant.Response{Text: "Playing a mix of " + joinNames(resolved) + "."}, nil
 }
 
+// stopSleep cancels the pending sleep timer, reporting whether there was
+// one.
+func (h *handler) stopSleep() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.sleepTimer == nil {
+		return false
+	}
+	h.sleepTimer.Stop()
+	h.sleepTimer = nil
+	return true
+}
+
+func (h *handler) cancelSleep(context.Context, CancelSleep) (assistant.Response, error) {
+	if !h.stopSleep() {
+		return assistant.Response{Text: "There is no sleep timer."}, nil
+	}
+	return assistant.Response{Text: "Sleep timer cancelled."}, nil
+}
+
 func (h *handler) pause(ctx context.Context, _ Pause) (assistant.Response, error) {
-	return ack("Paused.", h.player.Pause(ctx, Target{}))
+	if err := h.player.Pause(ctx, Target{}); err != nil {
+		return assistant.Response{}, err
+	}
+	h.stopSleep()
+	return assistant.Response{Text: "Paused."}, nil
+}
+
+func (h *handler) shuffle(ctx context.Context, _ Shuffle) (assistant.Response, error) {
+	return ack("Shuffle on.", h.player.SetShuffle(ctx, Target{}, true))
+}
+
+func (h *handler) noShuffle(ctx context.Context, _ NoShuffle) (assistant.Response, error) {
+	return ack("Shuffle off.", h.player.SetShuffle(ctx, Target{}, false))
 }
 
 func (h *handler) resume(ctx context.Context, _ Resume) (assistant.Response, error) {

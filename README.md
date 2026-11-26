@@ -127,11 +127,11 @@ One command, phrased three ways. What you say decides which it is:
 | "wake me up at 7 a.m.", "set an alarm for half past 6" | alarm | chime only |
 | "remind me to call my mom in 10 minutes", "remind me at 7 to take my pills" | reminder | chime + "Reminder: call your mom." |
 
-It repeats every 10 seconds, for up to 5 minutes, until you say "hey alfred, stop". "How much time is left?" and "what alarms do I have?" list them; "cancel the timer", "cancel my 7 o'clock alarm", "cancel the reminder to call mom" and "cancel all timers" cancel them. A clock time without am/pm means the next one: at 22:00, "at 7" is 07:00 tomorrow; at 10:00, it's 19:00. Timers are saved in Alfred's local database (`~/.local/state/alfred/alfred.db`, or `ALFRED_DB`), so they survive a restart. One that came due while Alfred was off goes off late if it's less than an hour overdue; older ones are dropped.
+It repeats every 10 seconds, for up to 5 minutes, until you say "hey alfred, stop". "How much time is left?" and "what alarms do I have?" list them; "cancel the timer", "cancel my 7 o'clock alarm", "cancel the reminder to call mom" and "cancel all timers" cancel them. "Snooze" (9 minutes, or "snooze for 5 minutes") puts a ringing one off; "add 5 minutes to the timer" extends one. A clock time without am/pm means the next one: at 22:00, "at 7" is 07:00 tomorrow; at 10:00, it's 19:00. Timers are saved in Alfred's local database (`~/.local/state/alfred/alfred.db`, or `ALFRED_DB`), so they survive a restart. One that came due while Alfred was off goes off late if it's less than an hour overdue; older ones are dropped.
 
 ## Music (Spotify)
 
-The music skill plays Spotify on Alfred's own speaker: "play daft punk", "play a radio with daft punk and justice" (a shuffled mix of only those artists), "pause", "play" (resume), "next song", "go back".
+The music skill plays Spotify on Alfred's own speaker: "play daft punk", "play a radio with daft punk and justice" (a shuffled mix of only those artists), "pause", "play" (resume), "next song", "go back", "what's playing", "shuffle" / "shuffle off", and a sleep timer: "stop the music in 30 minutes".
 
 Alfred logs in **once** with your own Spotify app (OAuth Authorization Code with PKCE, as in Home Assistant and OpenVoiceOS) and controls playback through the Spotify Web API. It plays on a Spotify Connect receiver running on the same box.
 

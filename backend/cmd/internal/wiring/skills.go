@@ -78,7 +78,7 @@ type IntentModelConfig struct {
 //	ALFRED_INTENT_MODEL_TIMEOUT  per recognition, e.g. "3s" (default 3s)
 func ConfigFromEnv() Config {
 	return Config{
-		DB:      envOr("ALFRED_DB", store.DefaultPath()),
+		DB:           envOr("ALFRED_DB", store.DefaultPath()),
 		Weather:      weatherFromEnv(),
 		WeatherPlace: os.Getenv("ALFRED_WEATHER_PLACE"),
 		Spotify: musicservice.SpotifyConfig{

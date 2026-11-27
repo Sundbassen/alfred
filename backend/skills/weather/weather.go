@@ -74,8 +74,11 @@ func register(r *assistant.Router, f Forecaster, place string, now func() time.T
 			"what is the weather like {day}", "how is the weather", "how is the weather {day}",
 			"what is the weather going to be {day}", "what is the weather going to be like {day}",
 			"how is the weather looking", "how is the weather looking {day}",
+			"how is the weather going to be {day}", "how is the weather going to be like {day}",
+			"what is the weather looking like {day}", "what will the weather be like {day}",
 			"what is the forecast", "what is the forecast for {day}", "how cold is it outside",
-			"how warm is it outside", "what is the temperature",
+			"how warm is it outside", "what is the temperature", "what is the temperature {day}",
+			"how cold will it be {day}", "how warm will it be {day}",
 		},
 		Help: "tell you the weather",
 	}, h.weather)
@@ -95,16 +98,39 @@ type handler struct {
 }
 
 // whichDay asks for the day when the one said isn't one ParseDay knows
-// ("what's the weather in copenhagen"); the answer fills the day slot.
-func whichDay(intent assistant.Intent) assistant.Response {
-	return assistant.Response{Text: "Which day?", Ask: &assistant.Question{Intent: intent, Slot: "day"}}
+// ("what's the weather banana"); the answer fills the day slot. Somewhere
+// else ("in paris") gets a SpokenError instead: there is only the
+// configured location.
+func (h *handler) whichDay(intent assistant.Intent, said string) (assistant.Response, error) {
+	if words := match.Normalize(said); strings.HasPrefix(words, "in ") || strings.HasPrefix(words, "at ") {
+		here := "here"
+		if h.place != "" {
+			here = "for " + h.place
+		}
+		return assistant.Response{}, &assistant.SpokenError{Text: "Sorry, I only know the weather " + here + ".",
+			Err: errors.WithMessagef(fault.ErrNotFound, "weather %q", said)}
+	}
+	return assistant.Response{Text: "Which day?", Ask: &assistant.Question{Intent: intent, Slot: "day"}}, nil
+}
+
+// partOfDay words narrow a day down further than the daily forecast goes,
+// so they're dropped: "tomorrow morning" is tomorrow.
+var partOfDay = map[string]bool{"morning": true, "afternoon": true, "evening": true, "night": true}
+
+// dayWords is the spoken day without parts of the day; "later" is today.
+func dayWords(said string) string {
+	words := strings.Fields(match.Normalize(said))
+	for len(words) > 0 && (partOfDay[words[len(words)-1]] || words[len(words)-1] == "later") {
+		words = words[:len(words)-1]
+	}
+	return strings.Join(words, " ")
 }
 
 // day finds the forecast for the spoken day ("" is today); ok is false if
 // the day isn't one ParseDay knows. A Saturday counts as "this weekend".
 func (h *handler) day(ctx context.Context, said string) (f Forecast, d Day, name string, ok bool, err error) {
 	now := h.now()
-	date, ok := spoken.ParseDay(match.Normalize(said), now)
+	date, ok := spoken.ParseDay(dayWords(said), now)
 	if !ok {
 		return Forecast{}, Day{}, "", false, nil
 	}
@@ -124,7 +150,7 @@ func (h *handler) day(ctx context.Context, said string) (f Forecast, d Day, name
 func (h *handler) weather(ctx context.Context, in Weather) (assistant.Response, error) {
 	f, d, name, ok, err := h.day(ctx, in.Day)
 	if !ok {
-		return whichDay(Weather{}), nil
+		return h.whichDay(Weather{}, in.Day)
 	}
 	if err != nil {
 		return assistant.Response{}, err
@@ -148,7 +174,7 @@ func (h *handler) weather(ctx context.Context, in Weather) (assistant.Response, 
 func (h *handler) rain(ctx context.Context, in Rain) (assistant.Response, error) {
 	_, d, name, ok, err := h.day(ctx, in.Day)
 	if !ok {
-		return whichDay(Rain{}), nil
+		return h.whichDay(Rain{}, in.Day)
 	}
 	if err != nil {
 		return assistant.Response{}, err

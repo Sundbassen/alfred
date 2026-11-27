@@ -34,8 +34,9 @@ type session struct {
 	mu  sync.Mutex
 	run *run // the pipeline run in progress, if any
 
-	announcing sync.Mutex // one announcement at a time, from request to confirmation
-	announced  chan bool  // VoiceAssistantAnnounceFinished
+	announcing sync.Mutex    // one announcement at a time, from request to confirmation
+	announced  chan bool     // VoiceAssistantAnnounceFinished
+	done       chan struct{} // closed when the connection is over
 }
 
 // run is one voice pipeline run: the satellite heard its wake word (or
@@ -277,6 +278,8 @@ func (s *session) announce(ctx context.Context, mediaID, text string) error {
 			s.logger.Debug("Satellite reported the announcement as not successful")
 		}
 		return nil
+	case <-s.done:
+		return errors.WithMessage(fault.ErrServiceUnavailable, "the satellite disconnected")
 	case <-ctx.Done():
 		return errors.WithMessage(fault.ErrTimeout, "the satellite didn't confirm the announcement")
 	}

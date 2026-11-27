@@ -405,3 +405,21 @@ func TestAnnounceWithoutSatellites(t *testing.T) {
 		t.Errorf("Chime with no satellite: %v, want ErrServiceUnavailable", err)
 	}
 }
+
+func TestAnnounceSatelliteDisconnects(t *testing.T) {
+	// The satellite drops while an announcement waits: it returns at once,
+	// not after the 30 s confirmation timeout.
+	h := start(t)
+	done := make(chan error, 1)
+	go func() { done <- h.hub.Chime(context.Background()) }()
+	h.next() // the announce request
+	h.device.Drop()
+	select {
+	case err := <-done:
+		if !errors.Is(err, fault.ErrServiceUnavailable) {
+			t.Errorf("Chime on a satellite that dropped: %v, want ErrServiceUnavailable", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Chime still waiting after the satellite disconnected")
+	}
+}

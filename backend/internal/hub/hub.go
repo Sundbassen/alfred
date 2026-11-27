@@ -109,7 +109,7 @@ func (h *Hub) serve(ctx context.Context, c *esphome.Conn, assistant *app.Assista
 	}
 	s := &session{
 		hub: h, conn: c, host: host, assistant: assistant, transcriber: transcriber, detector: detector,
-		logger: h.logger.With(slog.String("satellite", c.Name)), announced: make(chan bool, 1),
+		logger: h.logger.With(slog.String("satellite", c.Name)), announced: make(chan bool, 1), done: make(chan struct{}),
 	}
 	if err := c.Send(&esphomepb.SubscribeVoiceAssistantRequest{
 		Subscribe: true,
@@ -124,6 +124,7 @@ func (h *Hub) serve(ctx context.Context, c *esphome.Conn, assistant *app.Assista
 		h.mu.Lock()
 		delete(h.sessions, s)
 		h.mu.Unlock()
+		close(s.done)
 		s.stopRun()
 	}()
 	return s.loop(ctx)

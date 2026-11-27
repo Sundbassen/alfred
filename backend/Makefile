@@ -87,6 +87,12 @@ install:
 		git init -q $(LLAMA_DIR) && \
 		git -C $(LLAMA_DIR) remote add origin $(LLAMA_REPO); \
 	fi
+	@# Go 1.27 refuses to build cgo code linked with -fopenmp (the whisper
+	@# binding) when a GCC .spec file sits under the working directory, and
+	@# llama.cpp ships packaging specs in .devops/: leave that folder out.
+	@# The index refresh lets git remove files a cache restore re-timestamped.
+	@git -C $(LLAMA_DIR) update-index -q --refresh >/dev/null 2>&1 || true
+	@git -C $(LLAMA_DIR) sparse-checkout set --no-cone '/*' '!/.devops/'
 	@if [ "$$(git -C $(LLAMA_DIR) rev-parse HEAD 2>/dev/null)" != "$(LLAMA_REF)" ]; then \
 		echo "Fetching llama.cpp $(LLAMA_REF)..."; \
 		git -C $(LLAMA_DIR) fetch -q --depth 1 origin $(LLAMA_REF) && \
@@ -99,6 +105,13 @@ install:
 		-DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_UI=OFF -DLLAMA_USE_PREBUILT_UI=OFF $(LLAMA_CMAKE_FLAGS) && \
 		cmake --build $(LLAMA_DIR)/build-server --target llama-server -j $$(nproc)
 	@echo "llama.cpp setup complete!"
+	@# The general rule behind the .devops exclusion: no GCC spec file
+	@# (a file named *.spec or "specs", any case, as Go checks; directories
+	@# don't count) may sit under the module tree, or Go 1.27 refuses the
+	@# -fopenmp cgo build.
+	@specs=$$(find $(DEPS_DIR)/ ! -type d \( -iname '*.spec' -o -iname specs \) 2>/dev/null); if [ -n "$$specs" ]; then \
+		echo "Error: Go 1.27 won't build with GCC spec files (*.spec, specs) under $(DEPS_DIR); leave them out of the checkout:"; \
+		echo "$$specs"; exit 1; fi
 
 # Build the application
 build:

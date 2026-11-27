@@ -30,7 +30,7 @@ When Alfred asks something back ("You have 2 timers. Which one?", "Should I crea
 ## Requirements
 
 - Linux (the mic goes through [miniaudio](https://miniaud.io/) via malgo; developed on Manjaro with PipeWire)
-- Go ≥ 1.25, a C/C++ toolchain, cmake, git, curl
+- Go ≥ 1.27, a C/C++ toolchain, cmake, git, curl (coming from Go 1.25, run `make install` again: it leaves llama.cpp's packaging specs out, which Go 1.27 refuses to build next to)
 - `espeak-ng` for spoken replies (or run with `-tts none`)
 - `paplay` (PulseAudio or PipeWire's pulse utilities; `libpulse` on Arch) for the timer chime; without it timers only speak
 - `wpctl` (WirePlumber) for the volume commands (or point `ALFRED_WPCTL` at it); without it they're left out

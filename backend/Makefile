@@ -105,10 +105,11 @@ install:
 		-DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_UI=OFF -DLLAMA_USE_PREBUILT_UI=OFF $(LLAMA_CMAKE_FLAGS) && \
 		cmake --build $(LLAMA_DIR)/build-server --target llama-server -j $$(nproc)
 	@echo "llama.cpp setup complete!"
-	@# The general rule behind the .devops exclusion: no GCC .spec file may
-	@# sit under the module tree, or Go 1.27 refuses the -fopenmp cgo build.
-	@specs=$$(find $(DEPS_DIR)/ -name '*.spec' 2>/dev/null); if [ -n "$$specs" ]; then \
-		echo "Error: Go 1.27 won't build with GCC .spec files under $(DEPS_DIR); leave them out of the checkout:"; \
+	@# The general rule behind the .devops exclusion: no GCC spec file
+	@# (*.spec or "specs", any case, as Go checks) may sit under the module
+	@# tree, or Go 1.27 refuses the -fopenmp cgo build.
+	@specs=$$(find $(DEPS_DIR)/ \( -iname '*.spec' -o -iname specs \) 2>/dev/null); if [ -n "$$specs" ]; then \
+		echo "Error: Go 1.27 won't build with GCC spec files (*.spec, specs) under $(DEPS_DIR); leave them out of the checkout:"; \
 		echo "$$specs"; exit 1; fi
 
 # Build the application

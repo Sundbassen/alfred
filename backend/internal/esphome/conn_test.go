@@ -102,8 +102,8 @@ func TestEncryptionMismatches(t *testing.T) {
 		t.Errorf("no key for an encrypted device: %v, want ErrUnauthorized", err)
 	}
 	plain := esphometest.Start(t, "kitchen", "")
-	if _, err := esphome.Dial(ctx, esphome.Config{Address: plain.Addr(), Key: key, DialTimeout: time.Second}); err == nil {
-		t.Error("a key for a plaintext device connected")
+	if _, err := esphome.Dial(ctx, esphome.Config{Address: plain.Addr(), Key: key, DialTimeout: time.Second}); !errors.Is(err, fault.ErrInvalidValue) {
+		t.Errorf("a key for a plaintext device: %v, want ErrInvalidValue", err)
 	}
 	if _, err := esphome.Dial(ctx, esphome.Config{Address: plain.Addr(), Key: "short"}); !errors.Is(err, fault.ErrInvalidValue) {
 		t.Errorf("malformed key: %v, want ErrInvalidValue", err)
@@ -229,6 +229,20 @@ func TestBadKeyIsNotRetried(t *testing.T) {
 	case <-done:
 	case <-time.After(3 * time.Second):
 		t.Fatal("Keep kept retrying a malformed key")
+	}
+
+	// A key for a plaintext device isn't retried either.
+	plain := esphometest.Start(t, "kitchen", "")
+	done = make(chan struct{})
+	go func() {
+		defer close(done)
+		esphome.Keep(context.Background(), esphome.Config{Address: plain.Addr(), Key: key, DialTimeout: time.Second},
+			slog.New(slog.DiscardHandler), func(context.Context, *esphome.Conn) error { return nil })
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Keep kept retrying a key for a plaintext device")
 	}
 }
 

@@ -82,8 +82,8 @@ type Conn struct {
 // Dial connects to a device, runs the handshake (Noise if Config.Key is
 // set), and exchanges hello and device info. Failure categories:
 // fault.ErrServiceUnavailable (unreachable), fault.ErrUnauthorized (wrong
-// or missing key), fault.ErrInvalidValue (a malformed key), fault.ErrDecoding
-// (protocol errors).
+// or missing key), fault.ErrInvalidValue (a malformed key, or a key for a
+// plaintext device), fault.ErrDecoding (protocol errors).
 func Dial(ctx context.Context, cfg Config) (*Conn, error) {
 	if cfg.DialTimeout == 0 {
 		cfg.DialTimeout = 10 * time.Second

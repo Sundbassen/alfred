@@ -20,6 +20,7 @@ import (
 	"github.com/sundbassen/alfred/internal/voice/tts"
 	"github.com/sundbassen/alfred/skills/music/musicservice"
 	"github.com/sundbassen/alfred/skills/volume/volumeservice"
+	"github.com/sundbassen/alfred/skills/weather/weatherservice"
 )
 
 func intents(t *testing.T, cfg Config) map[string]bool {
@@ -190,6 +191,7 @@ func TestPromptCoversEveryIntent(t *testing.T) {
 	cfg := Config{
 		Spotify: musicservice.SpotifyConfig{ClientID: "cid", TokenFile: token},
 		Volume:  fakeWpctl(t),
+		Weather: &weatherservice.OpenMeteoConfig{Latitude: 55.7, Longitude: 12.6},
 	}
 	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatal(err)
@@ -371,5 +373,28 @@ func TestListPhrasesDontCatchOtherCommands(t *testing.T) {
 		if rec, err := m.Recognize(context.Background(), transcript); err != nil || rec.Intent != want {
 			t.Errorf("%q: %+v, %v; want %s", transcript, rec, err, want)
 		}
+	}
+}
+
+func TestWeatherNeedsALocation(t *testing.T) {
+	if got := intents(t, Config{}); got["weather"] {
+		t.Error("weather registered without a location")
+	}
+	if got := intents(t, Config{Weather: &weatherservice.OpenMeteoConfig{Latitude: 55.7, Longitude: 12.6}}); !got["weather"] || !got["weather_rain"] {
+		t.Errorf("intents %v, want weather with a location", got)
+	}
+	t.Setenv("ALFRED_WEATHER_LATITUDE", "55.6761")
+	t.Setenv("ALFRED_WEATHER_LONGITUDE", "not a number")
+	if cfg := ConfigFromEnv(); cfg.Weather != nil {
+		t.Errorf("invalid longitude: %+v", cfg.Weather)
+	}
+	t.Setenv("ALFRED_WEATHER_LONGITUDE", "12.5683")
+	t.Setenv("ALFRED_WEATHER_PLACE", "Copenhagen")
+	if cfg := ConfigFromEnv(); cfg.Weather == nil || cfg.WeatherPlace != "Copenhagen" || cfg.Weather.Longitude != 12.5683 {
+		t.Errorf("weather config: %+v, place %q", cfg.Weather, cfg.WeatherPlace)
+	}
+	t.Setenv("ALFRED_WEATHER_LATITUDE", "NaN")
+	if cfg := ConfigFromEnv(); cfg.Weather != nil {
+		t.Errorf("NaN latitude: %+v", cfg.Weather)
 	}
 }

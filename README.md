@@ -129,6 +129,17 @@ One command, phrased three ways. What you say decides which it is:
 
 It repeats every 10 seconds, for up to 5 minutes, until you say "hey alfred, stop". "How much time is left?" and "what alarms do I have?" list them; "cancel the timer", "cancel my 7 o'clock alarm", "cancel the reminder to call mom" and "cancel all timers" cancel them. "Snooze" (9 minutes, or "snooze for 5 minutes") puts a ringing one off; "add 5 minutes to the timer" extends one. A clock time without am/pm means the next one: at 22:00, "at 7" is 07:00 tomorrow; at 10:00, it's 19:00. Timers are saved in Alfred's local database (`~/.local/state/alfred/alfred.db`, or `ALFRED_DB`), so they survive a restart. One that came due while Alfred was off goes off late if it's less than an hour overdue; older ones are dropped.
 
+## Weather
+
+"What's the weather", "what's the weather tomorrow", "what's the forecast for Friday", "will it rain on Thursday", "do I need an umbrella": the current weather and the coming week, from [Open-Meteo](https://open-meteo.com) (no API key). Set the speaker's location to enable it:
+
+```sh
+export ALFRED_WEATHER_LATITUDE=55.6761 ALFRED_WEATHER_LONGITUDE=12.5683
+export ALFRED_WEATHER_PLACE=Copenhagen   # optional, said in the answers
+```
+
+Answers are metric. The location is sent to Open-Meteo with each forecast request (at most every 10 minutes).
+
 ## Lists
 
 Lists you create and fill by voice, kept in the local database (`~/.local/state/alfred/alfred.db`) for now; a cloud backend that shares them with your phone is planned ([#39](https://github.com/Sundbassen/alfred/issues/39)).
@@ -175,7 +186,7 @@ Wake word training is in `trainwakeword/`.
 
 ## Privacy
 
-Everything runs locally; no audio or text leaves your machine. With `SAVE=1`, voice recordings are written to `backend/.recordings/` (gitignored). Timers, alarms and reminders (including reminder messages) are kept in a local SQLite file, `~/.local/state/alfred/alfred.db` (mode 0600). The planned LLM fallback ([#2](https://github.com/Sundbassen/alfred/issues/2)) will send the *transcript* of unrecognized requests to the Claude API, and only when enabled.
+Everything runs locally; no audio or text leaves your machine. With `SAVE=1`, voice recordings are written to `backend/.recordings/` (gitignored). Timers, alarms and reminders (including reminder messages) are kept in a local SQLite file, `~/.local/state/alfred/alfred.db` (mode 0600). The weather skill, when configured, sends the speaker's coordinates to Open-Meteo. The planned LLM fallback ([#2](https://github.com/Sundbassen/alfred/issues/2)) will send the *transcript* of unrecognized requests to the Claude API, and only when enabled.
 
 ## Third-party components and licenses
 
@@ -190,6 +201,7 @@ Alfred downloads or builds these; none are included in the repository.
 | [openWakeWord](https://github.com/dscripka/openWakeWord) | wake word feature models and training pipeline | code: Apache-2.0. Pre-trained models: **CC BY-NC-SA 4.0 (non-commercial)**. Its README doesn't say whether this covers the `melspectrogram.onnx` / `embedding_model.onnx` feature models Alfred downloads, so treat them as non-commercial. |
 | [SQLite](https://sqlite.org) via [modernc.org/sqlite](https://gitlab.com/cznic/sqlite) | the local database (timers) | SQLite: public domain; modernc.org/sqlite: BSD-3-Clause |
 | [sqlc](https://github.com/sqlc-dev/sqlc) | generates the database query code (development only) | MIT |
+| [Open-Meteo](https://open-meteo.com) | weather forecasts (API, nothing downloaded) | data: CC BY 4.0 ("Weather data by Open-Meteo.com") |
 | [Silero VAD](https://github.com/snakers4/silero-vad) | optional silence detector | MIT |
 | [miniaudio](https://miniaud.io/) via [malgo](https://github.com/gen2brain/malgo) | microphone | miniaudio: public domain / MIT-0; malgo: Unlicense |
 | [Piper](https://github.com/rhasspy/piper) | synthetic samples (training only) | GPL-3.0 (piper-tts), not distributed with Alfred |

@@ -42,10 +42,12 @@ laptop-install:
 laptop-model: $(WAKE_DIR)/hey_alfred.tflite $(WAKE_DIR)/hey_alfred.json
 
 # The weights live in the .onnx.data file next to the .onnx. The script
-# writes the .tflite only once it matches the ONNX model's scores.
-$(WAKE_DIR)/hey_alfred.tflite: $(WAKE_MODEL_ONNX) $(wildcard $(WAKE_MODEL_ONNX).data)
+# writes the .tflite only once it matches the ONNX model's scores; a change
+# to it exports again.
+EXPORT_SCRIPT := ../trainwakeword/export-tflite.py
+$(WAKE_DIR)/hey_alfred.tflite: $(WAKE_MODEL_ONNX) $(wildcard $(WAKE_MODEL_ONNX).data) $(EXPORT_SCRIPT)
 	mkdir -p $(WAKE_DIR)
-	$(TRAIN_PYTHON) -I ../trainwakeword/export-tflite.py $(WAKE_MODEL_ONNX) $@
+	$(TRAIN_PYTHON) -I $(EXPORT_SCRIPT) $(WAKE_MODEL_ONNX) $@
 
 $(WAKE_DIR)/hey_alfred.json: linux/hey_alfred.json
 	mkdir -p $(WAKE_DIR)

@@ -12,7 +12,9 @@ code serves both kinds below. See [#54](https://github.com/Sundbassen/alfred/iss
 
 ## Laptop satellite
 
-Needs Python 3.11+, `mpv` (libmpv), ALSA (libasound) and PipeWire/PulseAudio.
+Needs Python 3.11, 3.12 or 3.13 (linux-voice-assistant's setup looks for
+`python3.11` to `python3.13` by name; 3.14 alone isn't enough), `mpv`
+(libmpv), ALSA (libasound) and PipeWire/PulseAudio.
 The wake word export uses the training environment (`trainwakeword/pythonvenv`)
 and the trained model in `backend/models/alfred/`.
 

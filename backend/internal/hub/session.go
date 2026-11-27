@@ -92,16 +92,18 @@ func (s *session) startRun(ctx context.Context, req *esphomepb.VoiceAssistantReq
 	s.stopRun()
 	ctx, cancel := context.WithTimeout(ctx, runTimeout)
 	r := &run{audio: make(chan []byte, 512), ended: make(chan struct{}), cancel: cancel, done: make(chan struct{})}
-	s.mu.Lock()
-	s.run = r
-	s.mu.Unlock()
 	s.logger.Info("Satellite heard its wake word", slog.String("wake_word", req.WakeWordPhrase),
 		slog.Bool("continuing", req.WakeWordPhrase == "" && req.ConversationId != ""))
-	// Port 0: the audio comes over this API connection.
+	// Port 0: the audio comes over this API connection. The run becomes
+	// current only once the satellite has its answer (no audio comes
+	// before), so a failed send leaves no run that never finishes.
 	if err := s.conn.Send(&esphomepb.VoiceAssistantResponse{Port: 0}); err != nil {
 		cancel()
 		return
 	}
+	s.mu.Lock()
+	s.run = r
+	s.mu.Unlock()
 	go func() {
 		defer close(r.done)
 		defer cancel()
@@ -249,7 +251,9 @@ func (s *session) fail(code string, err error) {
 
 // announce plays a clip on the satellite and waits until it has played (or
 // a timeout). Announcements on one satellite take turns (two timers can
-// ring at once), so each gets its own confirmation.
+// ring at once), so each gets its own confirmation. The protocol's
+// confirmations carry no id: one for a pipeline reply that finishes while
+// an announcement waits is taken as the announcement's.
 func (s *session) announce(ctx context.Context, mediaID, text string) error {
 	s.announcing.Lock()
 	defer s.announcing.Unlock()
@@ -266,8 +270,11 @@ func (s *session) announce(ctx context.Context, mediaID, text string) error {
 	defer cancel()
 	select {
 	case ok := <-s.announced:
+		// linux-voice-assistant confirms with an empty message, which
+		// reads as Success=false even though it played, so the flag is
+		// only logged.
 		if !ok {
-			return errors.WithMessage(fault.ErrServiceUnavailable, "the satellite couldn't play the announcement")
+			s.logger.Debug("Satellite reported the announcement as not successful")
 		}
 		return nil
 	case <-ctx.Done():

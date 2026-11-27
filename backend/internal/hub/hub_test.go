@@ -351,14 +351,16 @@ func TestTTSFailure(t *testing.T) {
 	}
 }
 
-func TestAnnounceFails(t *testing.T) {
+func TestAnnounceConfirmedWithoutSuccess(t *testing.T) {
+	// linux-voice-assistant confirms with an empty AnnounceFinished
+	// (Success false): that still counts as played.
 	h := start(t)
 	done := make(chan error, 1)
 	go func() { done <- h.hub.Chime(context.Background()) }()
 	h.next() // the announce request
-	_ = h.device.Send(&esphomepb.VoiceAssistantAnnounceFinished{Success: false})
-	if err := <-done; !errors.Is(err, fault.ErrServiceUnavailable) {
-		t.Errorf("Chime the satellite couldn't play: %v, want ErrServiceUnavailable", err)
+	_ = h.device.Send(&esphomepb.VoiceAssistantAnnounceFinished{})
+	if err := <-done; err != nil {
+		t.Errorf("Chime confirmed like linux-voice-assistant does: %v", err)
 	}
 }
 
@@ -369,14 +371,20 @@ func TestAnnouncementsTakeTurns(t *testing.T) {
 	done := make(chan error, 2)
 	go func() { done <- h.hub.Speak(context.Background(), "First.") }()
 	go func() { done <- h.hub.Speak(context.Background(), "Second.") }()
-	first := h.next().(*esphomepb.VoiceAssistantAnnounceRequest)
+	first, ok := h.next().(*esphomepb.VoiceAssistantAnnounceRequest)
+	if !ok {
+		t.Fatal("the first message isn't an announcement")
+	}
 	select {
 	case m := <-h.device.Received():
 		t.Fatalf("got %+v before the first announcement was confirmed", m)
 	case <-time.After(200 * time.Millisecond):
 	}
 	_ = h.device.Send(&esphomepb.VoiceAssistantAnnounceFinished{Success: true})
-	second := h.next().(*esphomepb.VoiceAssistantAnnounceRequest)
+	second, ok := h.next().(*esphomepb.VoiceAssistantAnnounceRequest)
+	if !ok {
+		t.Fatal("the second message isn't an announcement")
+	}
 	if first.Text == second.Text {
 		t.Errorf("the same announcement twice: %q", first.Text)
 	}

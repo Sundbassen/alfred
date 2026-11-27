@@ -1,6 +1,7 @@
 // Package espeak speaks text with the espeak-ng command-line synthesizer,
-// playing through the default audio device. Robotic, but needs no model
-// download; a stopgap until a neural voice (Piper, Kokoro) replaces it.
+// playing through the default audio device (Speak) or returning the audio as
+// WAV (Synthesize). Robotic, but needs no model download; a stopgap until a
+// neural voice (Piper, Kokoro) replaces it.
 package espeak
 
 import (
@@ -24,16 +25,22 @@ type Config struct {
 	Logger         *slog.Logger
 }
 
-type speaker struct {
+// Espeak is a tts.Speaker and tts.Synthesizer backed by espeak-ng.
+type Espeak struct {
 	path   string
 	voice  string
 	wpm    int
 	logger *slog.Logger
 }
 
-// New returns a Speaker backed by espeak-ng. It fails if espeak-ng is not
-// on the PATH.
-func New(config Config) (tts.Speaker, error) {
+var (
+	_ tts.Speaker     = (*Espeak)(nil)
+	_ tts.Synthesizer = (*Espeak)(nil)
+)
+
+// New returns espeak-ng as a speaker and synthesizer. It fails if espeak-ng
+// is not on the PATH.
+func New(config Config) (*Espeak, error) {
 	path, err := exec.LookPath(binary)
 	if err != nil {
 		return nil, errors.WithMessagef(errors.Prefix(err, fault.ErrServiceUnavailable), "%s not found (install it, or run with -tts none)", binary)
@@ -44,7 +51,7 @@ func New(config Config) (tts.Speaker, error) {
 	if config.WordsPerMinute == 0 {
 		config.WordsPerMinute = 160
 	}
-	return &speaker{
+	return &Espeak{
 		path:   path,
 		voice:  config.Voice,
 		wpm:    config.WordsPerMinute,
@@ -52,7 +59,8 @@ func New(config Config) (tts.Speaker, error) {
 	}, nil
 }
 
-func (s *speaker) Speak(ctx context.Context, text string) error {
+// Speak says text through the default audio device.
+func (s *Espeak) Speak(ctx context.Context, text string) error {
 	if strings.TrimSpace(text) == "" {
 		return nil
 	}
@@ -65,4 +73,16 @@ func (s *speaker) Speak(ctx context.Context, text string) error {
 		return errors.WithMessagef(err, "%s (%s)", binary, strings.TrimSpace(stderr.String()))
 	}
 	return nil
+}
+
+// Synthesize returns text spoken as WAV file bytes (espeak-ng --stdout,
+// 22.05 kHz mono 16-bit).
+func (s *Espeak) Synthesize(ctx context.Context, text string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, s.path, "-v", s.voice, "-s", strconv.Itoa(s.wpm), "--stdout", "--", text)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, errors.Prefix(errors.WithMessagef(err, "%s (%s)", binary, strings.TrimSpace(stderr.String())), fault.ErrServiceUnavailable)
+	}
+	return stdout.Bytes(), nil
 }

@@ -12,6 +12,7 @@ backend/.deps/
 
 # --- Compiled Go binaries ---
 backend/alfred
+backend/hub
 backend/reviewrecordings
 
 # --- Satellites: linux-voice-assistant, exported wake word (satellite/) ---

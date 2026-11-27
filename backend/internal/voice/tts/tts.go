@@ -11,6 +11,12 @@ type Speaker interface {
 	Speak(ctx context.Context, text string) error
 }
 
+// Synthesizer turns text into speech audio, as WAV file bytes, without
+// playing it: for a hub that sends the audio to a satellite.
+type Synthesizer interface {
+	Synthesize(ctx context.Context, text string) ([]byte, error)
+}
+
 type logSpeaker struct {
 	logger *slog.Logger
 }

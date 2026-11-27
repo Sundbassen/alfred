@@ -268,6 +268,10 @@ func ioError(err error, what string) error {
 	return errors.Prefix(errors.WithMessage(err, what), fault.ErrServiceUnavailable)
 }
 
+// LocalAddr is this end of the connection: the address the device reaches
+// the hub at, e.g. for media URLs it should fetch.
+func (c *Conn) LocalAddr() net.Addr { return c.net.LocalAddr() }
+
 // Close ends the connection, politely if it is still up: it asks the device
 // to disconnect, waiting at most a second for the write.
 func (c *Conn) Close() error {
@@ -310,6 +314,7 @@ func Keep(ctx context.Context, cfg Config, logger *slog.Logger, fn func(ctx cont
 			logger.Error("Satellite left out: its configuration is wrong", slog.String("address", cfg.Address), slog.String("error", err.Error()))
 			return
 		}
+		what := "Can't reach satellite, retrying"
 		if err == nil {
 			logger.Info("Connected to satellite", slog.String("address", cfg.Address), slog.String("name", c.Name))
 			backoff = time.Second
@@ -317,11 +322,12 @@ func Keep(ctx context.Context, cfg Config, logger *slog.Logger, fn func(ctx cont
 			err = fn(ctx, c)
 			stop()
 			c.Close()
+			what = "Satellite connection lost, reconnecting"
 		}
 		if ctx.Err() != nil {
 			return
 		}
-		logger.Warn("Satellite connection lost, retrying", slog.String("address", cfg.Address),
+		logger.Warn(what, slog.String("address", cfg.Address),
 			slog.Duration("in", backoff), slog.String("error", errString(err)))
 		select {
 		case <-ctx.Done():

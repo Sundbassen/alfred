@@ -12,12 +12,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"gitlab.com/tozd/go/errors"
 
-	"github.com/sundbassen/alfred/internal/app"
 	"github.com/sundbassen/alfred/internal/assistant"
+	"github.com/sundbassen/alfred/internal/esphome"
 	"github.com/sundbassen/alfred/internal/llm/ministral"
 	"github.com/sundbassen/alfred/internal/platform/fault"
 	"github.com/sundbassen/alfred/internal/store"
@@ -50,6 +51,8 @@ type Config struct {
 	// WeatherPlace names the location in weather answers ("In Copenhagen,
 	// …"); optional.
 	WeatherPlace string
+	// Hub is cmd/hub's satellites and media server.
+	Hub HubConfig
 	// IntentModel is the local model recognizing what the phrase
 	// templates miss; a missing model file disables it.
 	IntentModel IntentModelConfig
@@ -73,6 +76,8 @@ type IntentModelConfig struct {
 //	ALFRED_WEATHER_LATITUDE    the speaker's location for the weather, e.g. 55.6761 (unset: no weather skill)
 //	ALFRED_WEATHER_LONGITUDE   e.g. 12.5683
 //	ALFRED_WEATHER_PLACE       optional name said in weather answers, e.g. "Copenhagen"
+//	ALFRED_SATELLITES          cmd/hub: satellites to connect to, comma separated: host:port, or host:port#key for an encrypted device
+//	ALFRED_HUB_MEDIA_ADDR      cmd/hub: where satellites fetch reply audio from (default :7301)
 //	ALFRED_LLAMA_SERVER        llama-server binary (default .deps/llama.cpp/build-server/bin/llama-server; set by make)
 //	ALFRED_INTENT_MODEL_FILE   local intent model (default models/llm/<Ministral GGUF>; missing: no model tier)
 //	ALFRED_INTENT_MODEL_THREADS  CPU threads for the model (default 4)
@@ -82,6 +87,10 @@ func ConfigFromEnv() Config {
 		DB:           envOr("ALFRED_DB", store.DefaultPath()),
 		Weather:      weatherFromEnv(),
 		WeatherPlace: os.Getenv("ALFRED_WEATHER_PLACE"),
+		Hub: HubConfig{
+			Satellites: satellitesFromEnv(os.Getenv("ALFRED_SATELLITES")),
+			MediaAddr:  envOr("ALFRED_HUB_MEDIA_ADDR", ":7301"),
+		},
 		Spotify: musicservice.SpotifyConfig{
 			ClientID:  os.Getenv("ALFRED_SPOTIFY_CLIENT_ID"),
 			TokenFile: envOr("ALFRED_SPOTIFY_TOKEN_FILE", musicservice.DefaultSpotifyTokenFile()),
@@ -99,8 +108,9 @@ func ConfigFromEnv() Config {
 
 // Deps are what the skills are built with, besides their configuration.
 type Deps struct {
-	// Output speaks for skills that speak on their own (timers).
-	Output *app.Output
+	// Output speaks for skills that speak on their own (timers): app.Output
+	// on a single device, the hub's announcer with satellites.
+	Output clock.Announcer
 	// DB is the local database (store.Open), for state kept across
 	// restarts.
 	DB *sql.DB
@@ -203,6 +213,27 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// HubConfig configures cmd/hub.
+type HubConfig struct {
+	Satellites []esphome.Config
+	MediaAddr  string
+}
+
+// satellitesFromEnv parses "host:port,host:port#key" (base64 keys contain
+// no commas or "#").
+func satellitesFromEnv(value string) []esphome.Config {
+	var sats []esphome.Config
+	for _, item := range strings.Split(value, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		addr, key, _ := strings.Cut(item, "#")
+		sats = append(sats, esphome.Config{Address: addr, Key: key, ClientInfo: "Alfred hub"})
+	}
+	return sats
 }
 
 // weatherFromEnv reads the weather location; nil unless both coordinates

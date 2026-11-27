@@ -51,7 +51,7 @@ type Options struct {
 // New builds the speech-to-text service. The returned cleanup releases the
 // whisper model and must be called after the service has stopped.
 func New(opts Options, logger *slog.Logger) (listener.Service, func(), error) {
-	detector, err := newSilenceDetector(opts.VAD, logger)
+	detector, err := NewSilenceDetector(opts.VAD, logger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -71,25 +71,9 @@ func New(opts Options, logger *slog.Logger) (listener.Service, func(), error) {
 		return nil, nil, errors.WithMessage(fault.ErrInternal, "create streaming wake word activator")
 	}
 
-	if !opts.Verbose {
-		stt.QuietLogs()
-	}
-	model, err := whisper.New(whisperModel)
+	processor, cleanup, err := NewTranscriber(opts, logger)
 	if err != nil {
-		return nil, nil, errors.WithMessagef(err, "load whisper model %s", whisperModel)
-	}
-	cleanup := func() { model.Close() }
-
-	processor := stt.New(stt.Config{
-		Model:         model,
-		Language:      "en",
-		SampleRate:    SampleRate,
-		Logger:        logger,
-		InitialPrompt: opts.Prompt,
-	})
-	if processor == nil {
-		cleanup()
-		return nil, nil, errors.WithMessage(fault.ErrInternal, "create whisper processor")
+		return nil, nil, err
 	}
 
 	config := listener.DefaultConfig(detector, processor, streaming)
@@ -119,7 +103,38 @@ func New(opts Options, logger *slog.Logger) (listener.Service, func(), error) {
 	return service, cleanup, nil
 }
 
-func newSilenceDetector(kind string, logger *slog.Logger) (voice.SilenceDetector, error) {
+// NewTranscriber loads the whisper model and returns its transcriber,
+// biased toward opts.Prompt. The cleanup releases the model. It is shared
+// by the live app (New) and the hub, which transcribes satellites' audio.
+func NewTranscriber(opts Options, logger *slog.Logger) (voice.Transcriber, func(), error) {
+	if !opts.Verbose {
+		stt.QuietLogs()
+	}
+	model, err := whisper.New(whisperModel)
+	if err != nil {
+		return nil, nil, errors.WithMessagef(err, "load whisper model %s", whisperModel)
+	}
+	processor := stt.New(stt.Config{
+		Model:         model,
+		Language:      "en",
+		SampleRate:    SampleRate,
+		Logger:        logger,
+		InitialPrompt: opts.Prompt,
+	})
+	if processor == nil {
+		model.Close()
+		return nil, nil, errors.WithMessage(fault.ErrInternal, "create whisper processor")
+	}
+	return processor, func() { model.Close() }, nil
+}
+
+// CommandSilenceMs is the silence that ends a command, for listeners built
+// outside New (the hub's).
+const CommandSilenceMs = silenceMs
+
+// NewSilenceDetector returns the silence detector by kind: "rms" (default)
+// or "silero". Each listener needs its own (they keep state).
+func NewSilenceDetector(kind string, logger *slog.Logger) (voice.SilenceDetector, error) {
 	switch kind {
 	case "", "rms":
 		return vad.NewRMSSilenceDetector(vad.RMSConfig{

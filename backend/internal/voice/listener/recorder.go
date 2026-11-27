@@ -20,7 +20,6 @@ import (
 type Recorder struct {
 	c          *commandController
 	transcript *voice.Transcript
-	idle       bool
 }
 
 // RecorderConfig configures a Recorder; zero durations take the listener's
@@ -57,13 +56,12 @@ func NewRecorder(cfg RecorderConfig, logger *slog.Logger) (*Recorder, error) {
 	}
 	r.c = newCommandController(neverWake{}, cfg.SilenceDetector, cfg.Transcriber, nil, command, logger,
 		func(t voice.Transcript) { r.transcript = &t })
-	r.c.onIdle = func() { r.idle = true }
 	return r, nil
 }
 
 // Start begins recording a command.
 func (r *Recorder) Start() {
-	r.transcript, r.idle = nil, false
+	r.transcript = nil
 	r.c.followUp()
 }
 

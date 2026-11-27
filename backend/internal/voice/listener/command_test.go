@@ -306,13 +306,8 @@ func TestFollowUpWithoutWakeWord(t *testing.T) {
 		t.Errorf("activator fed %d chunks during the answer, want 0", len(h.act.fed))
 	}
 
-	idle := 0
-	h.ctrl.onIdle = func() { idle++ }
 	h.ctrl.followUp()
 	h.feed(c4('S', 5), c4('S', 6), c4('S', 7))
-	if idle != 1 {
-		t.Errorf("onIdle called %d times on a timeout, want 1", idle)
-	}
 	if len(h.proc.got) != 1 || h.ctrl.phase != phaseListening {
 		t.Errorf("no answer: transcribed %d, phase %v; want a timeout back to listening", len(h.proc.got), h.ctrl.phase)
 	}

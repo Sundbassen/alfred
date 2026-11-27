@@ -34,16 +34,21 @@ type session struct {
 	mu  sync.Mutex
 	run *run // the pipeline run in progress, if any
 
-	announced chan bool // VoiceAssistantAnnounceFinished
+	announcing sync.Mutex // one announcement at a time, from request to confirmation
+	announced  chan bool  // VoiceAssistantAnnounceFinished
 }
 
 // run is one voice pipeline run: the satellite heard its wake word (or
 // continues a conversation) and streams the command.
 type run struct {
-	audio  chan []byte // nil chunk: the satellite stopped sending audio
-	cancel context.CancelFunc
-	done   chan struct{}
+	audio   chan []byte
+	ended   chan struct{} // closed when the satellite stopped sending audio
+	endOnce sync.Once
+	cancel  context.CancelFunc
+	done    chan struct{}
 }
+
+func (r *run) end() { r.endOnce.Do(func() { close(r.ended) }) }
 
 func (s *session) loop(ctx context.Context) error {
 	for {
@@ -72,10 +77,7 @@ func (s *session) loop(ctx context.Context) error {
 				}
 			}
 			if m.End {
-				select {
-				case r.audio <- nil:
-				default:
-				}
+				r.end()
 			}
 		case *esphomepb.VoiceAssistantAnnounceFinished:
 			select {
@@ -89,7 +91,7 @@ func (s *session) loop(ctx context.Context) error {
 func (s *session) startRun(ctx context.Context, req *esphomepb.VoiceAssistantRequest) {
 	s.stopRun()
 	ctx, cancel := context.WithTimeout(ctx, runTimeout)
-	r := &run{audio: make(chan []byte, 512), cancel: cancel, done: make(chan struct{})}
+	r := &run{audio: make(chan []byte, 512), ended: make(chan struct{}), cancel: cancel, done: make(chan struct{})}
 	s.mu.Lock()
 	s.run = r
 	s.mu.Unlock()
@@ -112,6 +114,10 @@ func (s *session) startRun(ctx context.Context, req *esphomepb.VoiceAssistantReq
 	}()
 }
 
+// stopRun cancels the run in progress and waits for it to finish. Called
+// from loop, it holds up reading the connection until then; the pipeline
+// stops at its next step, but a transcription or model call already
+// running finishes first.
 func (s *session) stopRun() {
 	s.mu.Lock()
 	r := s.run
@@ -155,14 +161,23 @@ func (s *session) pipeline(ctx context.Context, r *run, conversationID string) {
 		select {
 		case <-ctx.Done():
 			s.event(esphomepb.VoiceAssistantEvent_VOICE_ASSISTANT_STT_VAD_END)
+			s.cancelled(ctx)
 			return
 		case chunk := <-r.audio:
-			if chunk == nil {
-				transcript, ended = rec.Finish(ctx), true
-				break
-			}
 			transcript, ended = rec.Feed(ctx, chunk)
+		case <-r.ended:
+			// What arrived before the end still counts.
+			for len(r.audio) > 0 && !ended {
+				transcript, ended = rec.Feed(ctx, <-r.audio)
+			}
+			if !ended {
+				transcript, ended = rec.Finish(ctx), true
+			}
 		}
+	}
+	if ctx.Err() != nil {
+		s.cancelled(ctx)
+		return
 	}
 	// The command is over: the satellite stops streaming.
 	s.event(esphomepb.VoiceAssistantEvent_VOICE_ASSISTANT_STT_VAD_END)
@@ -177,6 +192,10 @@ func (s *session) pipeline(ctx context.Context, r *run, conversationID string) {
 
 	s.event(esphomepb.VoiceAssistantEvent_VOICE_ASSISTANT_INTENT_START)
 	reply, err := s.assistant.Respond(ctx, text)
+	if ctx.Err() != nil {
+		s.cancelled(ctx)
+		return
+	}
 	answer, listen := "", false
 	switch {
 	case errors.Is(err, fault.ErrNotFound):
@@ -201,6 +220,10 @@ func (s *session) pipeline(ctx context.Context, r *run, conversationID string) {
 
 	s.event(esphomepb.VoiceAssistantEvent_VOICE_ASSISTANT_TTS_START, "text", answer)
 	wav, err := s.hub.cfg.Synthesizer.Synthesize(ctx, answer)
+	if ctx.Err() != nil {
+		s.cancelled(ctx)
+		return
+	}
 	if err != nil {
 		s.fail("tts-failed", err)
 		return
@@ -209,14 +232,27 @@ func (s *session) pipeline(ctx context.Context, r *run, conversationID string) {
 	s.event(esphomepb.VoiceAssistantEvent_VOICE_ASSISTANT_TTS_END, "url", url)
 }
 
+// cancelled ends a run whose context ended: quietly when the satellite (or
+// a new wake word) stopped it, with an error event when it ran out of time.
+func (s *session) cancelled(ctx context.Context) {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		s.fail("timeout", errors.WithMessagef(fault.ErrTimeout, "the run took over %s", runTimeout))
+		return
+	}
+	s.logger.Info("Voice pipeline run stopped")
+}
+
 func (s *session) fail(code string, err error) {
 	s.logger.Error("Voice pipeline failed", slog.String("code", code), slog.String("error", err.Error()))
 	s.event(esphomepb.VoiceAssistantEvent_VOICE_ASSISTANT_ERROR, "code", code, "message", err.Error())
 }
 
 // announce plays a clip on the satellite and waits until it has played (or
-// a timeout).
+// a timeout). Announcements on one satellite take turns (two timers can
+// ring at once), so each gets its own confirmation.
 func (s *session) announce(ctx context.Context, mediaID, text string) error {
+	s.announcing.Lock()
+	defer s.announcing.Unlock()
 	select {
 	case <-s.announced: // drop a stale confirmation
 	default:
@@ -229,7 +265,10 @@ func (s *session) announce(ctx context.Context, mediaID, text string) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	select {
-	case <-s.announced:
+	case ok := <-s.announced:
+		if !ok {
+			return errors.WithMessage(fault.ErrServiceUnavailable, "the satellite couldn't play the announcement")
+		}
 		return nil
 	case <-ctx.Done():
 		return errors.WithMessage(fault.ErrTimeout, "the satellite didn't confirm the announcement")

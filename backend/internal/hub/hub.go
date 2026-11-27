@@ -25,7 +25,9 @@ import (
 type Config struct {
 	// Satellites are the devices to connect to.
 	Satellites []esphome.Config
-	// MediaAddr is where the hub serves reply audio (default ":7301").
+	// MediaAddr is where the hub serves reply audio (default ":7301"). It
+	// must listen on the address satellites reach the hub at: reply URLs
+	// use the hub's address on each satellite connection with this port.
 	MediaAddr string
 	// Synthesizer speaks replies and announcements as WAV.
 	Synthesizer tts.Synthesizer
@@ -69,14 +71,13 @@ func New(cfg Config) (*Hub, error) {
 // transcribes one command at a time) until ctx ends.
 func (h *Hub) Run(ctx context.Context, assistant *app.Assistant, transcriber voice.Transcriber) error {
 	transcriber = &lockedTranscriber{t: transcriber}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	errc := make(chan error, 1)
 	go func() { errc <- h.media.serve() }()
 
 	var wg sync.WaitGroup
 	for _, sat := range h.cfg.Satellites {
-		if sat.ClientInfo == "" {
-			sat.ClientInfo = "Alfred hub"
-		}
 		wg.Go(func() {
 			esphome.Keep(ctx, sat, h.logger, func(ctx context.Context, c *esphome.Conn) error {
 				return h.serve(ctx, c, assistant, transcriber)
@@ -85,16 +86,15 @@ func (h *Hub) Run(ctx context.Context, assistant *app.Assistant, transcriber voi
 	}
 	h.logger.Info("Hub running", slog.Int("satellites", len(h.cfg.Satellites)), slog.String("media", h.media.ln.Addr().String()))
 
+	var err error
 	select {
 	case <-ctx.Done():
-	case err := <-errc:
-		if err != nil {
-			return err
-		}
+	case err = <-errc: // the media server failed
 	}
-	h.media.close()
+	cancel() // Keep closes the connections, so the sessions end
+	_ = h.media.close()
 	wg.Wait()
-	return nil
+	return err
 }
 
 // serve runs one satellite connection until it fails.

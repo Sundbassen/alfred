@@ -67,7 +67,6 @@ type commandController struct {
 	config      commandConfig
 	logger      *slog.Logger
 	emit        func(voice.Transcript)
-	onIdle      func() // a command ended without speech (timeout); may be nil
 
 	phase       commandPhase
 	assembler   *utteranceAssembler // command phase
@@ -145,9 +144,6 @@ func (c *commandController) handle(ctx context.Context, chunk []byte) {
 					c.logger.Info("No command followed, listening again",
 						slog.Float64("waited_seconds", c.seconds(c.waitedBytes)))
 					c.listen()
-					if c.onIdle != nil {
-						c.onIdle()
-					}
 				}
 			}
 		}

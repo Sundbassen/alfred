@@ -82,7 +82,7 @@ func (s *Espeak) Synthesize(ctx context.Context, text string) ([]byte, error) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
-		return nil, errors.WithMessagef(err, "%s (%s)", binary, strings.TrimSpace(stderr.String()))
+		return nil, errors.Prefix(errors.WithMessagef(err, "%s (%s)", binary, strings.TrimSpace(stderr.String())), fault.ErrServiceUnavailable)
 	}
 	return stdout.Bytes(), nil
 }

@@ -51,7 +51,7 @@ type Options struct {
 // New builds the speech-to-text service. The returned cleanup releases the
 // whisper model and must be called after the service has stopped.
 func New(opts Options, logger *slog.Logger) (listener.Service, func(), error) {
-	detector, err := newSilenceDetector(opts.VAD, logger)
+	detector, err := NewSilenceDetector(opts.VAD, logger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -135,10 +135,6 @@ const CommandSilenceMs = silenceMs
 // NewSilenceDetector returns the silence detector by kind: "rms" (default)
 // or "silero". Each listener needs its own (they keep state).
 func NewSilenceDetector(kind string, logger *slog.Logger) (voice.SilenceDetector, error) {
-	return newSilenceDetector(kind, logger)
-}
-
-func newSilenceDetector(kind string, logger *slog.Logger) (voice.SilenceDetector, error) {
 	switch kind {
 	case "", "rms":
 		return vad.NewRMSSilenceDetector(vad.RMSConfig{

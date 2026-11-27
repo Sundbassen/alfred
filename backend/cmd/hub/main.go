@@ -14,6 +14,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"gitlab.com/tozd/go/errors"
+
 	"github.com/sundbassen/alfred/cmd/internal/wiring"
 	"github.com/sundbassen/alfred/internal/app"
 	"github.com/sundbassen/alfred/internal/assistant"
@@ -32,9 +34,15 @@ func main() {
 
 	if err := run(*vad, *verbose, logger); err != nil {
 		logger.Error("Hub failed", slog.String("error", err.Error()))
+		if errors.Is(err, errNoSatellites) {
+			os.Exit(2)
+		}
 		os.Exit(1)
 	}
 }
+
+// errNoSatellites is a usage error: exit code 2.
+var errNoSatellites = errors.Base("no satellites: set ALFRED_SATELLITES, e.g. 127.0.0.1:6053 (see satellite/README.md)")
 
 func run(vad string, verbose bool, logger *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -42,8 +50,7 @@ func run(vad string, verbose bool, logger *slog.Logger) error {
 
 	cfg := wiring.ConfigFromEnv()
 	if len(cfg.Hub.Satellites) == 0 {
-		logger.Error("No satellites: set ALFRED_SATELLITES, e.g. 127.0.0.1:6053 (see satellite/README.md)")
-		os.Exit(2)
+		return errors.WithStack(errNoSatellites)
 	}
 
 	synth, err := espeak.New(espeak.Config{Logger: logger})

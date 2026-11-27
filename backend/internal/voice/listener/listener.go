@@ -46,7 +46,6 @@ type service struct {
 	wakeWord        voice.WakeWordDetector
 	command         commandConfig
 	sink            AudioSink
-	onIdle          func()
 	logger          *slog.Logger
 }
 
@@ -68,11 +67,6 @@ type Config struct {
 	CommandPreRollMs  int // audio kept from before command speech starts (default 100)
 	CommandMinMs      int // minimum command length before a silence gap may end it (default 300)
 	CommandLookbackMs int // audio from before a mid-speech activation prepended to the command (default 300)
-
-	// OnIdle, if set, is called when a command ends without speech (the
-	// timeout after a wake word or Listen), e.g. so a satellite can be told
-	// to stop streaming.
-	OnIdle func()
 
 	// Sink, if set, receives wake word clips, near misses and commands
 	// (the -save option).
@@ -136,7 +130,6 @@ func New(config Config, logger *slog.Logger) (Service, error) {
 			nearMissThreshold:  config.NearMissThreshold,
 		},
 		sink:   config.Sink,
-		onIdle: config.OnIdle,
 		logger: logger,
 	}
 
@@ -214,7 +207,6 @@ func withDefault(v, def int) int {
 func (s *service) commandLoop(ctx context.Context) {
 	controller := newCommandController(s.wakeWord, s.silenceDetector, s.transcriber,
 		s.sink, s.command, s.logger, s.emit)
-	controller.onIdle = s.onIdle
 
 	for {
 		select {

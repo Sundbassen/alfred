@@ -77,7 +77,8 @@ func register(r *assistant.Router, f Forecaster, place string, now func() time.T
 			"how is the weather going to be {day}", "how is the weather going to be like {day}",
 			"what is the weather looking like {day}", "what will the weather be like {day}",
 			"what is the forecast", "what is the forecast for {day}", "how cold is it outside",
-			"how warm is it outside", "what is the temperature", "what is the temperature {day}",
+			"how warm is it outside", "what is the temperature", "what is the temperature outside",
+			"what is the temperature {day}", "how cold will it be", "how warm will it be",
 			"how cold will it be {day}", "how warm will it be {day}",
 		},
 		Help: "tell you the weather",
@@ -102,7 +103,8 @@ type handler struct {
 // else ("in paris") gets a SpokenError instead: there is only the
 // configured location.
 func (h *handler) whichDay(intent assistant.Intent, said string) (assistant.Response, error) {
-	if words := match.Normalize(said); strings.HasPrefix(words, "in ") || strings.HasPrefix(words, "at ") {
+	words := match.Normalize(said)
+	if (strings.HasPrefix(words, "in ") || strings.HasPrefix(words, "at ")) && !hasTimeWord(words) {
 		here := "here"
 		if h.place != "" {
 			here = "for " + h.place
@@ -117,13 +119,34 @@ func (h *handler) whichDay(intent assistant.Intent, said string) (assistant.Resp
 // so they're dropped: "tomorrow morning" is tomorrow.
 var partOfDay = map[string]bool{"morning": true, "afternoon": true, "evening": true, "night": true}
 
-// dayWords is the spoken day without parts of the day; "later" is today.
-func dayWords(said string) string {
-	words := strings.Fields(match.Normalize(said))
-	for len(words) > 0 && (partOfDay[words[len(words)-1]] || words[len(words)-1] == "later") {
-		words = words[:len(words)-1]
+// dayFiller is dropped from a spoken day along with parts of the day:
+// "later today", "tomorrow at night", "at all today".
+var dayFiller = map[string]bool{"later": true, "at": true, "all": true}
+
+// timeWords say when, not where: "in an hour", "at the weekend" are no
+// other place.
+var timeWords = map[string]bool{"hour": true, "hours": true, "minute": true, "minutes": true, "day": true, "days": true,
+	"week": true, "weekend": true, "all": true, "morning": true, "afternoon": true, "evening": true, "night": true}
+
+func hasTimeWord(words string) bool {
+	for _, w := range strings.Fields(words) {
+		if timeWords[w] {
+			return true
+		}
 	}
-	return strings.Join(words, " ")
+	return false
+}
+
+// dayWords is the spoken day without parts of the day and filler ("later"
+// alone is today).
+func dayWords(said string) string {
+	var kept []string
+	for _, w := range strings.Fields(match.Normalize(said)) {
+		if !partOfDay[w] && !dayFiller[w] {
+			kept = append(kept, w)
+		}
+	}
+	return strings.Join(kept, " ")
 }
 
 // day finds the forecast for the spoken day ("" is today); ok is false if

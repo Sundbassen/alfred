@@ -88,6 +88,13 @@ func TestWeather(t *testing.T) {
 		"How's the weather going to be tomorrow?":  "Tomorrow: clear, a high of 12 and a low of 4, with a 10 percent chance of rain.",
 		"What will the weather be like on Friday?": "On Friday: partly cloudy, a high of 5 and a low of 0.",
 		"What's the weather in Paris?":             "Sorry, I only know the weather here.",
+		"Will it rain at night?":                   "Yes, a 60 percent chance of rain today.",
+		"Will it rain later today?":                "Yes, a 60 percent chance of rain today.",
+		"Will it rain tomorrow at night?":          "Probably not: a 10 percent chance of rain tomorrow.",
+		"Will it rain at all today?":               "Yes, a 60 percent chance of rain today.",
+		"Will it rain in an hour?":                 "Which day?",
+		"How cold will it be?":                     "It's 7 degrees and cloudy. Today: a high of 9 and a low of 3, with a 60 percent chance of rain.",
+		"What's the temperature outside?":          "It's 7 degrees and cloudy. Today: a high of 9 and a low of 3, with a 60 percent chance of rain.",
 		"What's the weather on Saturday?":          "On Saturday: a high of 6 and a low of 1.",
 		"Will it rain on Saturday?":                "Sorry, I don't know the chance of rain on Saturday.",
 	} {

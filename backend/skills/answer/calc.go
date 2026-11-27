@@ -181,7 +181,11 @@ func formatNumber(v float64) string {
 		// Said as words a voice can read: "about 1.2 times 10 to the
 		// power of minus 5".
 		exp := int(math.Floor(math.Log10(v)))
-		mantissa := strings.TrimRight(strings.TrimRight(strconv.FormatFloat(v/math.Pow(10, float64(exp)), 'f', 1, 64), "0"), ".")
+		m := math.Round(v/math.Pow(10, float64(exp))*10) / 10
+		if m >= 10 { // 9.96 rounds up to 10
+			m, exp = m/10, exp+1
+		}
+		mantissa := strings.TrimRight(strings.TrimRight(strconv.FormatFloat(m, 'f', 1, 64), "0"), ".")
 		power := strconv.Itoa(exp)
 		if exp < 0 {
 			power = "minus " + strconv.Itoa(-exp)

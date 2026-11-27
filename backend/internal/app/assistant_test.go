@@ -163,8 +163,9 @@ func TestFallback(t *testing.T) {
 
 func TestFallbackUnavailable(t *testing.T) {
 	// While the model loads (or is down), a miss is still a miss: the
-	// no-match error, not "can't reach that".
-	for _, cause := range []error{fault.ErrServiceUnavailable, fault.ErrTimeout} {
+	// no-match error, not "can't reach that". (A timeout is reported as
+	// one.)
+	for _, cause := range []error{fault.ErrServiceUnavailable} {
 		r := newTestRouter(nil)
 		assistant.Handle(r, assistant.Spec{}, func(context.Context, question) (assistant.Response, error) {
 			return assistant.Response{}, errors.WithMessage(cause, "model")

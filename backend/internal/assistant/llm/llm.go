@@ -98,7 +98,12 @@ func (s *Schema) MarshalJSON() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	keys := slices.Clone(s.Order)
+	var keys []string // Order's properties first, each once
+	for _, k := range s.Order {
+		if _, ok := s.Properties[k]; ok && !slices.Contains(keys, k) {
+			keys = append(keys, k)
+		}
+	}
 	var others []string
 	for k := range s.Properties {
 		if !slices.Contains(keys, k) {
@@ -111,10 +116,7 @@ func (s *Schema) MarshalJSON() ([]byte, error) {
 	var b bytes.Buffer
 	b.WriteString(`{"properties":{`)
 	for i, k := range keys {
-		prop, ok := s.Properties[k]
-		if !ok {
-			continue
-		}
+		prop := s.Properties[k]
 		if i > 0 {
 			b.WriteByte(',')
 		}

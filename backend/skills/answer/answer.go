@@ -107,6 +107,13 @@ func (a *Answerer) ask(ctx context.Context, in Ask) (assistant.Response, error) 
 	}
 	var r reply
 	if err := json.Unmarshal(res.JSON, &r); err != nil {
+		// JSON that just stops: the model wrote more than MaxTokens, i.e.
+		// it rambled instead of giving the short answer it's sure of.
+		var syntax *json.SyntaxError
+		if errors.As(err, &syntax) && syntax.Offset >= int64(len(res.JSON)) {
+			a.logger.Info("Local answer: cut off at the token limit", slog.String("question", question))
+			return assistant.Response{Text: UnsureText}, nil
+		}
 		return assistant.Response{}, errors.Prefix(errors.WithMessagef(err, "model answer %s", res.JSON), fault.ErrDecoding)
 	}
 	log := a.logger.With(slog.String("question", question), slog.String("kind", r.Kind), slog.Duration("took", time.Since(start)))

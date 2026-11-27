@@ -42,6 +42,15 @@ func TestTextConfidence(t *testing.T) {
 	}
 }
 
+func TestSchemaOrderNotAProperty(t *testing.T) {
+	// Order may name properties the schema lacks, or one twice.
+	s := &Schema{Type: "object", Order: []string{"missing", "a", "a"}, Properties: map[string]*Schema{"a": {Type: "number"}, "b": {Type: "string"}}}
+	data, err := json.Marshal(s)
+	if want := `{"properties":{"a":{"type":"number"},"b":{"type":"string"}},"type":"object"}`; err != nil || string(data) != want {
+		t.Errorf("JSON:\n got %s\nwant %s", data, want)
+	}
+}
+
 func TestSchemaPropertyOrder(t *testing.T) {
 	no := false
 	s := &Schema{AnyOf: []*Schema{{

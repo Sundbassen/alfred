@@ -73,7 +73,8 @@ func TestAnswers(t *testing.T) {
 		{"How many millimeters in a lot of kilometers?", fakeModel{json: `{"kind":"convert","value":1e308,"from":"km","to":"mm"}`},
 			"Sorry, I can't convert between those."},
 		{"What is minus 2 squared?", fakeModel{json: `{"kind":"math","expression":"-2^2"}`}, "That's minus 4."},
-		{"Who wrote Hamlet?", fakeModel{json: `{"kind":"answer","text":"Shakespeare"}`}, UnsureText}, // no tokens
+		{"Who wrote Hamlet?", fakeModel{json: `{"kind":"answer","text":"Shakespeare"}`}, UnsureText},                   // no tokens
+		{"Tell me everything about Rome", fakeModel{json: `{"kind":"answer","text":"Rome was founded in`}, UnsureText}, // cut off
 		{"Who wrote Hamlet?", fakeModel{json: `{"kind":"answer","text":"  "}`, tokens: textTokens("x", 0.99)}, UnsureText},
 	} {
 		m := tt.model

@@ -59,7 +59,7 @@ const minFallbackWords = 3
 // fallback returns for them (e.g. a question for a language model),
 // instead of returning a no-match error. Transcripts of fewer than three
 // words still return the error, and so does a fallback that can't answer
-// right now (fault.ErrServiceUnavailable or fault.ErrTimeout).
+// right now (fault.ErrServiceUnavailable).
 func (a *Assistant) SetFallback(fallback func(transcript string) assistant.Intent) {
 	a.fallback = fallback
 }
@@ -124,9 +124,10 @@ func (a *Assistant) Respond(ctx context.Context, transcript string) (*Reply, err
 		len(strings.Fields(match.Normalize(transcript))) >= minFallbackWords {
 		intent := a.fallback(transcript)
 		reply, ferr := a.dispatch(ctx, intent, assistant.Recognition{Intent: intent.IntentName(), Phrase: transcript, Score: 1, By: FallbackBy})
-		if errors.Is(ferr, fault.ErrServiceUnavailable) || errors.Is(ferr, fault.ErrTimeout) {
+		if errors.Is(ferr, fault.ErrServiceUnavailable) {
 			// The fallback can't answer right now (the model is loading or
-			// down): this is still a transcript nothing understood.
+			// down): this is still a transcript nothing understood. A slow
+			// answer (fault.ErrTimeout) is said as such.
 			return nil, err
 		}
 		return reply, ferr

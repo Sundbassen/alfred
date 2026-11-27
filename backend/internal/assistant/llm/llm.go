@@ -5,6 +5,11 @@
 // validates it. The model itself is behind the Model interface, so
 // switching models is a new Model implementation plus a change in
 // cmd/internal/wiring.
+//
+// The package also holds what any user of a model needs: the model
+// contract (Model, Request, Result, Token), JSON schemas (Schema, with
+// AnyOf and Order), and TextConfidence. Skills that ask a model directly
+// (skills/answer) declare a Model-shaped interface and use these types.
 package llm
 
 import (

@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"math"
 	"strings"
 	"time"
 
@@ -39,7 +40,8 @@ type Model interface {
 // probability and its least likely token reach these. Tuned on known
 // questions with Ministral 3 3B (answer_model_test.go): right answers
 // scored a mean of 0.83–0.98 and a least of 0.44 or more, made-up ones a
-// mean of 0.53–0.66 and a least of 0.14 or less.
+// mean of 0.53–0.77 and a least of 0.16 or less. The made-up mean comes
+// close to minMean, so the least likely token does most of the work.
 const (
 	minMean  = 0.8
 	minLeast = 0.3
@@ -98,7 +100,7 @@ func (a *Answerer) ask(ctx context.Context, in Ask) (assistant.Response, error) 
 	start := time.Now()
 	res, err := a.model.Generate(ctx, request(in.Question))
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return assistant.Response{}, errors.WithMessagef(fault.ErrTimeout, "answer took over %s", timeout)
+		return assistant.Response{}, errors.WithMessagef(fault.ErrTimeout, "answer took over %s", time.Since(start).Round(time.Second))
 	}
 	if err != nil {
 		return assistant.Response{}, err
@@ -126,10 +128,13 @@ func (a *Answerer) ask(ctx context.Context, in Ask) (assistant.Response, error) 
 		from, to := r.From, r.To
 		// Small models sometimes swap the units; the amount in the question
 		// is next to the unit it's in ("30 degrees celsius").
-		if u := unitAfterValue(question, *r.Value); u != "" && u == to && u != from {
+		if u := unitAfterValue(strings.ToLower(in.Question), *r.Value); u != "" && u == to && u != from {
 			from, to = to, from
 		}
 		v, err := convert(*r.Value, from, to)
+		if err == nil && (math.IsInf(v, 0) || math.IsNaN(v)) {
+			err = errors.WithMessagef(fault.ErrInvalidValue, "%v %s in %s has no finite value", *r.Value, from, to)
+		}
 		if err != nil {
 			log.Info("Local answer: bad conversion", slog.String("from", from), slog.String("to", to))
 			return assistant.Response{Text: "Sorry, I can't convert between those."}, nil

@@ -79,9 +79,9 @@ func (p *parser) expr() (float64, error) {
 	return 0, err
 }
 
-// term = power {("*"|"/"|"%") power}
+// term = unary {("*"|"/"|"%") unary}
 func (p *parser) term() (float64, error) {
-	v, err := p.power()
+	v, err := p.unary()
 	for err == nil {
 		op := p.peek()
 		if op != '*' && op != '/' && op != '%' {
@@ -89,7 +89,7 @@ func (p *parser) term() (float64, error) {
 		}
 		p.i++
 		var w float64
-		if w, err = p.power(); err != nil {
+		if w, err = p.unary(); err != nil {
 			break
 		}
 		switch op {
@@ -109,25 +109,25 @@ func (p *parser) term() (float64, error) {
 	return 0, err
 }
 
-// power = unary ["^" power] (right-associative)
-func (p *parser) power() (float64, error) {
-	v, err := p.unary()
-	if err != nil || p.peek() != '^' {
-		return v, err
-	}
-	p.i++
-	e, err := p.power()
-	return math.Pow(v, e), err
-}
-
-// unary = "-" unary | primary
+// unary = "-" unary | power. Minus binds looser than "^", so -2^2 is -4.
 func (p *parser) unary() (float64, error) {
 	if p.peek() == '-' {
 		p.i++
 		v, err := p.unary()
 		return -v, err
 	}
-	return p.primary()
+	return p.power()
+}
+
+// power = primary ["^" unary] (right-associative: 2^3^2 is 2^9)
+func (p *parser) power() (float64, error) {
+	v, err := p.primary()
+	if err != nil || p.peek() != '^' {
+		return v, err
+	}
+	p.i++
+	e, err := p.unary()
+	return math.Pow(v, e), err
 }
 
 // primary = number | "(" expr ")" | "sqrt" "(" expr ")"
@@ -177,7 +177,18 @@ func formatNumber(v float64) string {
 	if v < 0 {
 		return "minus " + formatNumber(-v)
 	}
-	if v == math.Trunc(v) && v < 1e15 {
+	if v >= 1e15 || (v > 0 && v < 1e-4) {
+		// Said as words a voice can read: "about 1.2 times 10 to the
+		// power of minus 5".
+		exp := int(math.Floor(math.Log10(v)))
+		mantissa := strings.TrimRight(strings.TrimRight(strconv.FormatFloat(v/math.Pow(10, float64(exp)), 'f', 1, 64), "0"), ".")
+		power := strconv.Itoa(exp)
+		if exp < 0 {
+			power = "minus " + strconv.Itoa(-exp)
+		}
+		return "about " + mantissa + " times 10 to the power of " + power
+	}
+	if v == math.Trunc(v) {
 		return strconv.FormatFloat(v, 'f', 0, 64)
 	}
 	decimals := 2
@@ -185,9 +196,5 @@ func formatNumber(v float64) string {
 		decimals = 4
 	}
 	s := strconv.FormatFloat(v, 'f', decimals, 64)
-	s = strings.TrimRight(strings.TrimRight(s, "0"), ".")
-	if s == "0" {
-		return strconv.FormatFloat(v, 'g', 3, 64)
-	}
-	return s
+	return strings.TrimRight(strings.TrimRight(s, "0"), ".")
 }

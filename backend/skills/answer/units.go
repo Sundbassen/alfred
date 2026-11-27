@@ -97,8 +97,16 @@ var unitWords = map[string]string{
 // "celsius" in "30 degrees celsius in fahrenheit". Speeds ("kilometers per
 // hour") come out as their first word's unit; callers only use the result
 // to check the direction. "" if not found.
+//
+// question is the transcript as said, lowercased: numbers keep their
+// decimal point ("2.5 miles"), which match.Normalize would split.
 func unitAfterValue(question string, value float64) string {
-	tokens := strings.Fields(question)
+	var tokens []string
+	for _, f := range strings.Fields(question) {
+		if t := strings.TrimRight(strings.TrimLeft(f, "\"'("), ".,!?;:\"')"); t != "" {
+			tokens = append(tokens, t)
+		}
+	}
 	for i, t := range tokens {
 		isValue := strings.ReplaceAll(t, ",", "") == strconv.FormatFloat(value, 'f', -1, 64)
 		if value == 1 && (t == "a" || t == "an" || t == "one") {

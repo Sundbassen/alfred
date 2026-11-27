@@ -25,7 +25,7 @@ command matching ─ normalization + token overlap against each command's phrase
 reply ─────── espeak-ng (a natural voice is planned: #5)
 ```
 
-When Alfred asks something back ("You have 2 timers. Which one?", "Should I create it?"), it listens for the answer for a few seconds without the wake word. Unrecognized requests get "Sorry, I didn't catch that." A cloud LLM fallback for freeform questions is planned ([#2](https://github.com/Sundbassen/alfred/issues/2)).
+When Alfred asks something back ("You have 2 timers. Which one?", "Should I create it?"), it listens for the answer for a few seconds without the wake word. Questions no command covers (three words or more: sums, unit conversions, general knowledge) go to the local model, which answers only when it's confident ("I'm not sure about that." otherwise); a cloud model for what it can't answer is planned ([#2](https://github.com/Sundbassen/alfred/issues/2)). Anything else gets "Sorry, I didn't catch that."
 
 ## Requirements
 
@@ -105,7 +105,7 @@ make install                 # also builds llama.cpp's llama-server into .deps/
 make run
 ```
 
-Alfred starts `llama-server` as a child process, loads and warms the model in the background, and stops it on exit. Until the model is warm, misses get "Sorry, I didn't catch that." Without the model file the tier is left out.
+Alfred starts `llama-server` as a child process, loads and warms the model in the background, and stops it on exit. Until the model is warm, misses get "Sorry, I didn't catch that." (questions too). Without the model file the model tier and local answers are left out.
 
 Settings: `ALFRED_INTENT_MODEL_FILE`, `ALFRED_INTENT_MODEL_THREADS` (default 4), and `ALFRED_INTENT_MODEL_TIMEOUT` (default 3s; slower answers fall through).
 

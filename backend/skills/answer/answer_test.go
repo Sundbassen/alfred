@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"testing/synctest"
 
 	"gitlab.com/tozd/go/errors"
 
@@ -65,6 +66,15 @@ func TestAnswers(t *testing.T) {
 		{"Who was the mayor of Aarhus in 1923?", fakeModel{json: `{"kind":"answer","text":"Ole Olsen"}`,
 			tokens: textTokens("Ole Olsen", 0.5)}, UnsureText},
 		{"Tell me a joke", fakeModel{json: `{"kind":"unknown"}`}, UnknownText},
+		// Swapped units with a decimal amount ("2.5" survives as a number).
+		{"What is 2.5 miles in kilometers?", fakeModel{json: `{"kind":"convert","value":2.5,"from":"km","to":"mi"}`},
+			"2.5 miles is 4.02 kilometers."},
+		{"How many grams?", fakeModel{json: `{"kind":"convert","from":"lb","to":"g"}`}, "Sorry, I couldn't work that out."},
+		{"How many millimeters in a lot of kilometers?", fakeModel{json: `{"kind":"convert","value":1e308,"from":"km","to":"mm"}`},
+			"Sorry, I can't convert between those."},
+		{"What is minus 2 squared?", fakeModel{json: `{"kind":"math","expression":"-2^2"}`}, "That's minus 4."},
+		{"Who wrote Hamlet?", fakeModel{json: `{"kind":"answer","text":"Shakespeare"}`}, UnsureText}, // no tokens
+		{"Who wrote Hamlet?", fakeModel{json: `{"kind":"answer","text":"  "}`, tokens: textTokens("x", 0.99)}, UnsureText},
 	} {
 		m := tt.model
 		got, err := ask(t, &m, tt.question)
@@ -93,4 +103,23 @@ func TestModelErrors(t *testing.T) {
 	if _, err := ask(t, &fakeModel{json: "nope"}, "x"); !errors.Is(err, fault.ErrDecoding) {
 		t.Errorf("bad JSON: %v", err)
 	}
+}
+
+// blockingModel answers only when its context ends.
+type blockingModel struct{}
+
+func (blockingModel) Generate(ctx context.Context, _ llm.Request) (llm.Result, error) {
+	<-ctx.Done()
+	return llm.Result{}, ctx.Err()
+}
+
+func TestTimeout(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		r := assistant.NewRouter()
+		Register(r, blockingModel{}, nil)
+		_, err := r.Dispatch(context.Background(), Ask{Question: "What is the meaning of life?"})
+		if !errors.Is(err, fault.ErrTimeout) {
+			t.Errorf("slow model: %v, want ErrTimeout", err)
+		}
+	})
 }

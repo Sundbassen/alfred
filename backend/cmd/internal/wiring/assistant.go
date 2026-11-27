@@ -28,8 +28,10 @@ type Model struct {
 
 	mu      sync.Mutex
 	warmers []func(context.Context) error
-	warmed  chan struct{} // closed when loaded and warm (or given up)
+	ctx     context.Context // set by warm; nil before
 	stop    context.CancelFunc
+	once    sync.Once
+	warmed  chan struct{} // closed when loaded and warm (or given up)
 }
 
 // StartModel starts llama-server with the model in the background (loading
@@ -58,33 +60,65 @@ func StartModel(cfg Config, logger *slog.Logger) (*Model, error) {
 }
 
 // OnReady registers a warm-up (e.g. sending a prompt once so the server
-// caches it) to run when the model has loaded; see warm.
+// caches it) to run when the model has loaded, in registration order; see
+// warm. One registered after warming started runs as soon as the model is
+// ready.
 func (m *Model) OnReady(warm func(context.Context) error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.warmers = append(m.warmers, warm)
+	if m.ctx == nil {
+		m.warmers = append(m.warmers, warm)
+		return
+	}
+	ctx := m.ctx
+	go func() {
+		if m.server.WaitReady(ctx) == nil {
+			m.runWarmer(ctx, warm)
+		}
+	}()
 }
 
 // warm runs the registered warm-ups in the background once the model has
-// loaded. NewAssistant calls it after the skills have registered theirs.
-func (m *Model) warm() {
-	var ctx context.Context
-	ctx, m.stop = context.WithCancel(context.Background())
-	m.mu.Lock()
-	warmers := m.warmers
-	m.mu.Unlock()
-	go func() {
-		defer close(m.warmed)
-		if err := m.server.WaitReady(ctx); err != nil {
-			return
+// loaded, first (if given) the intent tier's, which the recognizer needs
+// soonest. NewAssistant calls it after the skills have registered theirs;
+// later calls do nothing.
+func (m *Model) warm(first func(context.Context) error) {
+	m.once.Do(func() {
+		m.mu.Lock()
+		ctx, stop := context.WithCancel(context.Background())
+		m.ctx, m.stop = ctx, stop
+		warmers := m.warmers
+		if first != nil {
+			warmers = append([]func(context.Context) error{first}, warmers...)
 		}
-		for _, w := range warmers {
-			if err := w(ctx); err != nil && ctx.Err() == nil {
-				m.logger.Warn("Local model warm-up failed", slog.String("error", err.Error()))
+		m.mu.Unlock()
+		go func() {
+			defer close(m.warmed)
+			if err := m.server.WaitReady(ctx); err != nil {
+				return
 			}
-		}
-		m.logger.Info("Local model ready")
-	}()
+			failed := 0
+			for _, w := range warmers {
+				if !m.runWarmer(ctx, w) {
+					failed++
+				}
+			}
+			if failed > 0 {
+				m.logger.Warn("Local model ready, but warm-ups failed (the first answers will be slower)", slog.Int("failed", failed))
+				return
+			}
+			m.logger.Info("Local model ready")
+		}()
+	})
+}
+
+// runWarmer runs one warm-up, logging a failure; it reports success.
+func (m *Model) runWarmer(ctx context.Context, w func(context.Context) error) bool {
+	if err := w(ctx); err != nil && ctx.Err() == nil {
+		m.logger.Warn("Local model warm-up failed", slog.String("error", err.Error()))
+		return false
+	}
+	return true
 }
 
 // Close stops the model server. A nil Model is fine.
@@ -92,8 +126,11 @@ func (m *Model) Close() {
 	if m == nil {
 		return
 	}
-	if m.stop != nil {
-		m.stop()
+	m.mu.Lock()
+	stop := m.stop
+	m.mu.Unlock()
+	if stop != nil {
+		stop()
 	}
 	_ = m.server.Close()
 }
@@ -123,8 +160,7 @@ func NewAssistant(r *assistant.Router, cfg Config, model *Model, logger *slog.Lo
 			Logger:  logger,
 		})
 		recognizers = append(recognizers, rec)
-		model.OnReady(rec.Warm)
-		model.warm()
+		model.warm(rec.Warm)
 	}
 	a.Assistant = app.NewAssistant(r, recognizers...)
 	// What nothing recognizes goes to the answer skill (if registered), the

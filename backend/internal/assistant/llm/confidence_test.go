@@ -35,6 +35,11 @@ func TestTextConfidence(t *testing.T) {
 	if _, _, ok := TextConfidence(toks(`{"text": "`, 1.0, "...", 0.5, `"}`, 1.0), "text"); ok {
 		t.Error("a value without letters or digits has no confidence")
 	}
+	// A value ending in an escaped backslash ends at the next quote.
+	_, least, ok = TextConfidence(toks(`{"text": "`, 1.0, "slash", 0.9, `\\`, 1.0, `", "x": "`, 1.0, "after", 0.1, `"}`, 1.0), "text")
+	if !ok || math.Abs(least-0.9) > 1e-9 {
+		t.Errorf("escaped backslash: least %.2f, %v; want 0.9 (the value ends before \"after\")", least, ok)
+	}
 }
 
 func TestSchemaPropertyOrder(t *testing.T) {

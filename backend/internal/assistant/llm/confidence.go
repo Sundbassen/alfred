@@ -40,9 +40,13 @@ func TextConfidence(tokens []Token, field string) (mean, least float64, ok bool)
 	}
 	start := key + colon + open + 1
 	end := start
-	for end < len(text) && !(text[end] == '"' && text[end-1] != '\\') {
+	for end < len(text) && text[end] != '"' {
+		if text[end] == '\\' {
+			end++ // skip the escaped character, which may be a quote or a backslash
+		}
 		end++
 	}
+	end = min(end, len(text))
 
 	var sum float64
 	least = 1

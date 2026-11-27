@@ -25,7 +25,7 @@ internal/  may import only internal/       (plus the standard library and third-
 | `skills/<skill>/<skill>store/` | Persistence for that skill: `<skill>store.go` implements the skill's `Store` interface. It only calls the generated queries (`internal/store/storedb`) and converts their rows to and from the skill's domain types. Kept separate from `<skill>service` (external providers): it imports only the skill and `internal/store/storedb`, and nothing but wiring imports it |
 | `internal/assistant/` | The intent contract and router: `Intent`, `Handle[I]`, `Router`, `Response`, `Spec`, `SpokenError`, `SpokenText` |
 | `internal/assistant/match/` | The phrase-template recognizer (the first tier) |
-| `internal/assistant/llm/` | The model-agnostic language-model recognizer: prompt and JSON schema from the intents, validation of the answer. Models plug in through its `Model` interface. Further recognizers (e.g. the Claude fallback) go alongside and produce the same `assistant.Recognition` |
+| `internal/assistant/llm/` | The model-agnostic language-model recognizer: prompt and JSON schema from the intents, validation of the answer. Models plug in through its `Model` interface. It also holds the model contract every model user shares (`Request`, `Result`, `Token`, `Schema`, `TextConfidence`). Further recognizers (e.g. the Claude fallback) go alongside and produce the same `assistant.Recognition` |
 | `internal/llm/<model>/` | Language model implementations of `llm.Model` (e.g. `ministral`), plus `internal/llm/llamaserver` (runs llama.cpp's server as a child process) |
 | `internal/app/` | Wires the voice framework into a listener, plus `Assistant` (recognize → dispatch). It never imports skills |
 | `internal/voice/` | The voice framework: `listener`, `wakeword`, `stt`, `vad` (+ `silero`), `mic`, `tts`, `sound` (the chime), `recorder`. Its contracts are in `voice.go` |
@@ -59,6 +59,11 @@ Recognition, the router and the skills don't change.
 2. Write its queries in `internal/store/queries/<table>.sql`.
 3. Run `make sqlc` and commit the regenerated `internal/store/storedb`; CI runs `make sqlc-diff`.
 4. In `skills/<skill>/<skill>store/<skill>store.go`, call the generated queries and convert between their rows and the skill's domain types.
+
+**Give a skill the language model** (e.g. `skills/answer`):
+1. The skill declares the interface it needs, shaped like `llm.Model` (`Generate(ctx, llm.Request) (llm.Result, error)`), and uses the `llm` types; no `<skill>service` adapter is needed.
+2. Wiring passes `Deps.Model` (`wiring.StartModel`, shared with the intent tier; nil without a model, then the skill is left out) and registers a warm-up with `Model.OnReady`.
+3. To take transcripts nothing else recognizes, `wiring.NewAssistant` sets `app.Assistant.SetFallback`.
 
 **Add shared infrastructure:**
 1. Add a client package in `internal/<client>/`.

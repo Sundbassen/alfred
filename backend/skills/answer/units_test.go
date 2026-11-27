@@ -30,20 +30,21 @@ func TestConvert(t *testing.T) {
 }
 
 func TestUnitAfterValue(t *testing.T) {
-	for q, want := range map[string]string{
-		"what is 30 degrees celsius in fahrenheit": "c",
-		"how many grams in a pound":                "lb",
-		"how many feet is 3 meters":                "m",
-		"convert 100 kilometers per hour to mph":   "km",
-		"what is the weather":                      "",
+	for _, tc := range []struct {
+		question string
+		value    float64
+		want     string
+	}{
+		{"what is 30 degrees celsius in fahrenheit", 30, "c"},
+		{"how many grams in a pound", 1, "lb"},
+		{"how many feet is 3 meters", 3, "m"},
+		{"convert 100 kilometers per hour to mph", 100, "km"},
+		{"what is 2.5 miles in kilometers?", 2.5, "mi"},
+		{"how many kilograms is 1,000 pounds?", 1000, "lb"},
+		{"what is the weather", 1, ""},
 	} {
-		value := map[string]float64{"what is 30 degrees celsius in fahrenheit": 30, "how many feet is 3 meters": 3,
-			"convert 100 kilometers per hour to mph": 100}[q]
-		if value == 0 {
-			value = 1
-		}
-		if got := unitAfterValue(q, value); got != want {
-			t.Errorf("unitAfterValue(%q) = %q, want %q", q, got, want)
+		if got := unitAfterValue(tc.question, tc.value); got != tc.want {
+			t.Errorf("unitAfterValue(%q, %v) = %q, want %q", tc.question, tc.value, got, tc.want)
 		}
 	}
 }

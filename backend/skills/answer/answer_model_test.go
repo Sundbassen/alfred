@@ -17,7 +17,7 @@ import (
 // TestWithTheRealModel asks the real local model known questions and logs
 // each answer with its confidence: the data minMean and minLeast are tuned
 // on. It needs the model (./download-model.sh --llm, make install) and runs
-// only with ALFRED_TEST_MODEL=1 (it takes about a minute):
+// only with ALFRED_TEST_MODEL=1 (it takes about 35 seconds):
 //
 //	ALFRED_TEST_MODEL=1 make test
 func TestWithTheRealModel(t *testing.T) {

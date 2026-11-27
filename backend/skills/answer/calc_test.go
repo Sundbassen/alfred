@@ -44,6 +44,7 @@ func TestFormatNumber(t *testing.T) {
 		345: "345", 12.5: "12.5", 453.59237: "453.59", -14: "minus 14", 0.1 + 0.2: "0.3", 0.0625: "0.0625",
 		0.000012: "about 1.2 times 10 to the power of minus 5", 1e6: "1000000",
 		1.07e301: "about 1.1 times 10 to the power of 301", 9.96e15: "about 1 times 10 to the power of 16",
+		1e-320: "about 1 times 10 to the power of minus 320",
 	} {
 		if got := formatNumber(v); got != want {
 			t.Errorf("formatNumber(%v) = %q, want %q", v, got, want)

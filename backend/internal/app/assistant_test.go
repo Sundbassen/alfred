@@ -163,9 +163,8 @@ func TestFallback(t *testing.T) {
 
 func TestFallbackUnavailable(t *testing.T) {
 	// While the model loads (or is down), a miss is still a miss: the
-	// no-match error, not "can't reach that". (A timeout is reported as
-	// one.)
-	for _, cause := range []error{fault.ErrServiceUnavailable} {
+	// no-match error, not "can't reach that". A timeout is reported as one.
+	for _, cause := range []error{fault.ErrServiceUnavailable, fault.ErrTimeout} {
 		r := newTestRouter(nil)
 		assistant.Handle(r, assistant.Spec{}, func(context.Context, question) (assistant.Response, error) {
 			return assistant.Response{}, errors.WithMessage(cause, "model")
@@ -174,8 +173,8 @@ func TestFallbackUnavailable(t *testing.T) {
 		a.SetFallback(func(transcript string) assistant.Intent { return question{Text: transcript} })
 		_, err := a.Respond(context.Background(), "Who wrote Hamlet?")
 		var noMatch *match.NoMatchError
-		if !errors.As(err, &noMatch) {
-			t.Errorf("%v from the fallback: %v, want the templates' no-match error", cause, err)
+		if gotNoMatch := errors.As(err, &noMatch); gotNoMatch != (cause == fault.ErrServiceUnavailable) || !errors.Is(err, cause) && !gotNoMatch {
+			t.Errorf("%v from the fallback: %v; want the no-match error only when the model is unavailable", cause, err)
 		}
 	}
 }

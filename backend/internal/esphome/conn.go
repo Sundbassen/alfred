@@ -300,8 +300,8 @@ func (c *Conn) keepAlive(every time.Duration) {
 // with backoff (1 s, doubling to 30 s) when the device is unreachable or
 // fn returns, until ctx ends. When ctx ends, Keep closes the connection, so
 // an fn blocked in Recv returns. fn should return when the connection
-// fails. A configuration error (a malformed key) isn't retried: Keep logs
-// it and returns.
+// fails. A configuration error (a malformed key, or a key for a plaintext
+// device) isn't retried: Keep logs it and returns.
 func Keep(ctx context.Context, cfg Config, logger *slog.Logger, fn func(ctx context.Context, c *Conn) error) {
 	backoff := time.Second
 	for ctx.Err() == nil {

@@ -44,6 +44,24 @@ type Assistant struct {
 	mu       sync.Mutex
 	question *assistant.Question // pending follow-up question
 	askedAt  time.Time
+
+	fallback func(transcript string) assistant.Intent
+}
+
+// FallbackBy is the Recognition.By of a transcript handed to the fallback.
+const FallbackBy = "fallback"
+
+// minFallbackWords keeps short noise ("uh", "thanks", a false wake) away
+// from the fallback.
+const minFallbackWords = 3
+
+// SetFallback makes transcripts no recognizer places go to the intent
+// fallback returns for them (e.g. a question for a language model),
+// instead of returning a no-match error. Transcripts of fewer than three
+// words still return the error, and so does a fallback that can't answer
+// right now (fault.ErrServiceUnavailable).
+func (a *Assistant) SetFallback(fallback func(transcript string) assistant.Intent) {
+	a.fallback = fallback
 }
 
 // QuestionTTL is how long a follow-up question waits for its answer,
@@ -96,13 +114,26 @@ func (a *Assistant) Respond(ctx context.Context, transcript string) (*Reply, err
 	}
 
 	var rec assistant.Recognition
+	var err error
 	if command != nil {
 		rec = *command
 	} else {
-		var err error
-		if rec, err = a.recognize(ctx, transcript); err != nil {
+		rec, err = a.recognize(ctx, transcript)
+	}
+	if errors.Is(err, fault.ErrNotFound) && a.fallback != nil &&
+		len(strings.Fields(match.Normalize(transcript))) >= minFallbackWords {
+		intent := a.fallback(transcript)
+		reply, ferr := a.dispatch(ctx, intent, assistant.Recognition{Intent: intent.IntentName(), Phrase: transcript, Score: 1, By: FallbackBy})
+		if errors.Is(ferr, fault.ErrServiceUnavailable) {
+			// The fallback can't answer right now (the model is loading or
+			// down): this is still a transcript nothing understood. A slow
+			// answer (fault.ErrTimeout) is said as such.
 			return nil, err
 		}
+		return reply, ferr
+	}
+	if err != nil {
+		return nil, err
 	}
 
 	intent, err := a.router.New(rec.Intent)

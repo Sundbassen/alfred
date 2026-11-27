@@ -25,7 +25,7 @@ command matching ─ normalization + token overlap against each command's phrase
 reply ─────── espeak-ng (a natural voice is planned: #5)
 ```
 
-When Alfred asks something back ("You have 2 timers. Which one?", "Should I create it?"), it listens for the answer for a few seconds without the wake word. Unrecognized requests get "Sorry, I didn't catch that." A cloud LLM fallback for freeform questions is planned ([#2](https://github.com/Sundbassen/alfred/issues/2)).
+When Alfred asks something back ("You have 2 timers. Which one?", "Should I create it?"), it listens for the answer for a few seconds without the wake word. Questions no command covers (three words or more: sums, unit conversions, general knowledge) go to the local model, which answers only when it's confident ("I'm not sure about that." otherwise); a cloud model for what it can't answer is planned ([#2](https://github.com/Sundbassen/alfred/issues/2)). Anything else gets "Sorry, I didn't catch that."
 
 ## Requirements
 
@@ -105,11 +105,17 @@ make install                 # also builds llama.cpp's llama-server into .deps/
 make run
 ```
 
-Alfred starts `llama-server` as a child process, loads and warms the model in the background, and stops it on exit. Until the model is warm, misses get "Sorry, I didn't catch that." Without the model file the tier is left out.
+Alfred starts `llama-server` as a child process, loads and warms the model in the background, and stops it on exit. Until the model is warm, misses get "Sorry, I didn't catch that." (questions too). Without the model file the model tier and local answers are left out.
 
 Settings: `ALFRED_INTENT_MODEL_FILE`, `ALFRED_INTENT_MODEL_THREADS` (default 4), and `ALFRED_INTENT_MODEL_TIMEOUT` (default 3s; slower answers fall through).
 
 On a laptop CPU, Ministral 3 3B answers in ~2–3 s, so it's a fallback, not a fast path. Model choice is tracked in [#26](https://github.com/Sundbassen/alfred/issues/26).
+
+### Questions, sums and conversions
+
+The same model answers what no command covers: "what's 15 times 23", "how many grams in a pound", "what's 30 degrees Celsius in Fahrenheit", "who wrote Hamlet". The model only works out what's asked; Alfred computes sums and conversions itself, so the numbers are exact. Free-text answers are only said when the model was confident of them, measured from its token probabilities; otherwise "I'm not sure about that." Obscure questions it would make answers up for get that. A question takes several seconds on a CPU. A cloud model for what the local one can't answer is planned ([#2](https://github.com/Sundbassen/alfred/issues/2)).
+
+`ALFRED_TEST_MODEL=1 make test` runs the answers against the real model, logging each answer's confidence.
 
 ## Everyday commands
 

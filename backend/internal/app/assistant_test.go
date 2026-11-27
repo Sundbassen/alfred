@@ -134,3 +134,47 @@ func TestRouteSlots(t *testing.T) {
 		}
 	}
 }
+
+type question struct{ Text string }
+
+func (question) IntentName() string { return "question" }
+
+func TestFallback(t *testing.T) {
+	r := newTestRouter(nil)
+	var asked []string
+	assistant.Handle(r, assistant.Spec{}, func(_ context.Context, q question) (assistant.Response, error) {
+		asked = append(asked, q.Text)
+		return assistant.Response{Text: "I don't know."}, nil
+	})
+	a := withTemplates(r)
+	a.SetFallback(func(transcript string) assistant.Intent { return question{Text: transcript} })
+
+	reply, err := a.Respond(context.Background(), "Who wrote Hamlet?")
+	if err != nil || reply.Text != "I don't know." || reply.Recognition.By != FallbackBy || len(asked) != 1 {
+		t.Errorf("fallback: %+v, %v, asked %q", reply, err, asked)
+	}
+	if reply, err := a.Respond(context.Background(), "Good morning."); err != nil || reply.Recognition.Intent != "greet" {
+		t.Errorf("a command still goes to its intent: %+v, %v", reply, err)
+	}
+	if _, err := a.Respond(context.Background(), "Uh, thanks."); !errors.Is(err, fault.ErrNotFound) || len(asked) != 1 {
+		t.Errorf("short noise: %v, asked %q; want a no-match and no question", err, asked)
+	}
+}
+
+func TestFallbackUnavailable(t *testing.T) {
+	// While the model loads (or is down), a miss is still a miss: the
+	// no-match error, not "can't reach that". A timeout is reported as one.
+	for _, cause := range []error{fault.ErrServiceUnavailable, fault.ErrTimeout} {
+		r := newTestRouter(nil)
+		assistant.Handle(r, assistant.Spec{}, func(context.Context, question) (assistant.Response, error) {
+			return assistant.Response{}, errors.WithMessage(cause, "model")
+		})
+		a := withTemplates(r)
+		a.SetFallback(func(transcript string) assistant.Intent { return question{Text: transcript} })
+		_, err := a.Respond(context.Background(), "Who wrote Hamlet?")
+		var noMatch *match.NoMatchError
+		if gotNoMatch := errors.As(err, &noMatch); gotNoMatch != (cause == fault.ErrServiceUnavailable) || !errors.Is(err, cause) && !gotNoMatch {
+			t.Errorf("%v from the fallback: %v; want the no-match error only when the model is unavailable", cause, err)
+		}
+	}
+}

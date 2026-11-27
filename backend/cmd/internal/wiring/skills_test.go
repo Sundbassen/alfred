@@ -26,7 +26,7 @@ import (
 func intents(t *testing.T, cfg Config) map[string]bool {
 	t.Helper()
 	r := assistant.NewRouter()
-	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), slog.New(slog.NewTextHandler(io.Discard, nil))); err != nil {
+	if err := RegisterSkills(context.Background(), r, cfg, Deps{Output: testOutput(), DB: testDB(t)}, slog.New(slog.NewTextHandler(io.Discard, nil))); err != nil {
 		t.Fatal(err)
 	}
 	names := make(map[string]bool)
@@ -59,7 +59,7 @@ func TestMusicNeedsSpotifyConfigAndLogin(t *testing.T) {
 	// Bare "stop" goes to the stop skill (ringing timers first), not to
 	// music_pause.
 	r := assistant.NewRouter()
-	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), slog.New(slog.DiscardHandler)); err != nil {
+	if err := RegisterSkills(context.Background(), r, cfg, Deps{Output: testOutput(), DB: testDB(t)}, slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatal(err)
 	}
 	if rec, err := match.New(r.Intents()).Recognize(context.Background(), "Stop."); err != nil || rec.Intent != "stop" {
@@ -100,14 +100,13 @@ func TestAssistantWithoutModelUsesTemplates(t *testing.T) {
 	r := assistant.NewRouter()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cfg := Config{IntentModel: IntentModelConfig{Server: filepath.Join(t.TempDir(), "llama-server"), ModelFile: "missing.gguf"}}
-	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), logger); err != nil {
+	if err := RegisterSkills(context.Background(), r, cfg, Deps{Output: testOutput(), DB: testDB(t)}, logger); err != nil {
 		t.Fatal(err)
 	}
-	a, err := NewAssistant(r, cfg, logger)
+	a, err := NewAssistant(r, cfg, nil, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer a.Close()
 	if err := a.WaitReady(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +158,7 @@ func TestTimersSurviveARestart(t *testing.T) {
 	db := testDB(t)
 	start := func() *assistant.Router {
 		r := assistant.NewRouter()
-		if err := RegisterSkills(context.Background(), r, Config{}, testOutput(), db, slog.New(slog.DiscardHandler)); err != nil {
+		if err := RegisterSkills(context.Background(), r, Config{}, Deps{Output: testOutput(), DB: db}, slog.New(slog.DiscardHandler)); err != nil {
 			t.Fatal(err)
 		}
 		return r
@@ -193,7 +192,7 @@ func TestPromptCoversEveryIntent(t *testing.T) {
 		Volume:  fakeWpctl(t),
 		Weather: &weatherservice.OpenMeteoConfig{Latitude: 55.7, Longitude: 12.6},
 	}
-	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), slog.New(slog.DiscardHandler)); err != nil {
+	if err := RegisterSkills(context.Background(), r, cfg, Deps{Output: testOutput(), DB: testDB(t)}, slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatal(err)
 	}
 	prompt := strings.ToLower(match.New(r.Intents()).Prompt())
@@ -227,7 +226,7 @@ func TestPromptCoversEveryIntent(t *testing.T) {
 func TestHelpAndRepeat(t *testing.T) {
 	r := assistant.NewRouter()
 	cfg := Config{Volume: fakeWpctl(t)}
-	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), slog.New(slog.DiscardHandler)); err != nil {
+	if err := RegisterSkills(context.Background(), r, cfg, Deps{Output: testOutput(), DB: testDB(t)}, slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatal(err)
 	}
 	want := "I can tell you the time and date, set timers and reminders, change the volume, and keep lists."
@@ -243,14 +242,13 @@ func TestFollowUpQuestion(t *testing.T) {
 	r := assistant.NewRouter()
 	logger := slog.New(slog.DiscardHandler)
 	cfg := Config{IntentModel: IntentModelConfig{Server: filepath.Join(t.TempDir(), "llama-server"), ModelFile: "missing.gguf"}}
-	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), logger); err != nil {
+	if err := RegisterSkills(context.Background(), r, cfg, Deps{Output: testOutput(), DB: testDB(t)}, logger); err != nil {
 		t.Fatal(err)
 	}
-	a, err := NewAssistant(r, cfg, logger)
+	a, err := NewAssistant(r, cfg, nil, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer a.Close()
 	say := func(transcript string) *app.Reply {
 		t.Helper()
 		reply, err := a.Respond(context.Background(), transcript)
@@ -280,7 +278,7 @@ func TestSleepTimerPhrasesBeatClockCancel(t *testing.T) {
 	}
 	r := assistant.NewRouter()
 	cfg := Config{Spotify: musicservice.SpotifyConfig{ClientID: "cid", TokenFile: token}}
-	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), slog.New(slog.DiscardHandler)); err != nil {
+	if err := RegisterSkills(context.Background(), r, cfg, Deps{Output: testOutput(), DB: testDB(t)}, slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatal(err)
 	}
 	m := match.New(r.Intents())
@@ -303,14 +301,13 @@ func TestListsEndToEnd(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
 	cfg := Config{IntentModel: IntentModelConfig{Server: filepath.Join(t.TempDir(), "llama-server"), ModelFile: "missing.gguf"}}
 	db := testDB(t)
-	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), db, logger); err != nil {
+	if err := RegisterSkills(context.Background(), r, cfg, Deps{Output: testOutput(), DB: db}, logger); err != nil {
 		t.Fatal(err)
 	}
-	a, err := NewAssistant(r, cfg, logger)
+	a, err := NewAssistant(r, cfg, nil, logger)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer a.Close()
 	for _, step := range [][2]string{
 		{"Add milk, eggs and bread to the shopping list.", "You don't have a list called shopping. Should I create it?"},
 		{"Yes.", "Added milk, eggs and bread to your shopping list."},
@@ -339,7 +336,7 @@ func TestListPhrasesDontCatchOtherCommands(t *testing.T) {
 	}
 	r := assistant.NewRouter()
 	cfg := Config{Spotify: musicservice.SpotifyConfig{ClientID: "cid", TokenFile: token}, Volume: fakeWpctl(t)}
-	if err := RegisterSkills(context.Background(), r, cfg, testOutput(), testDB(t), slog.New(slog.DiscardHandler)); err != nil {
+	if err := RegisterSkills(context.Background(), r, cfg, Deps{Output: testOutput(), DB: testDB(t)}, slog.New(slog.DiscardHandler)); err != nil {
 		t.Fatal(err)
 	}
 	m := match.New(r.Intents())
@@ -396,5 +393,17 @@ func TestWeatherNeedsALocation(t *testing.T) {
 	t.Setenv("ALFRED_WEATHER_LATITUDE", "NaN")
 	if cfg := ConfigFromEnv(); cfg.Weather != nil {
 		t.Errorf("NaN latitude: %+v", cfg.Weather)
+	}
+}
+
+func TestNoModelNoAnswers(t *testing.T) {
+	cfg := Config{IntentModel: IntentModelConfig{Server: filepath.Join(t.TempDir(), "llama-server"), ModelFile: "missing.gguf"}}
+	model, err := StartModel(cfg, slog.New(slog.DiscardHandler))
+	if err != nil || model != nil {
+		t.Fatalf("StartModel without a model = %v, %v; want nil, nil", model, err)
+	}
+	model.Close() // nil is fine
+	if got := intents(t, Config{}); got["answer"] {
+		t.Error("answer skill registered without a model")
 	}
 }

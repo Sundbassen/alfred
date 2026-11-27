@@ -26,7 +26,7 @@ const (
 
 // ChatServer is what Ministral needs from a model server.
 type ChatServer interface {
-	ChatJSON(ctx context.Context, messages []llamaserver.Message, schema any, opts llamaserver.Options) ([]byte, error)
+	ChatJSON(ctx context.Context, messages []llamaserver.Message, schema any, opts llamaserver.Options) (llamaserver.Completion, error)
 }
 
 // Ministral implements llm.Model.
@@ -45,9 +45,21 @@ func New(server ChatServer) *Ministral {
 // Generate asks Ministral for the JSON answer. Ministral 3's chat template
 // supports a system message, which carries the static intent description
 // (cached by llama-server across requests).
-func (m *Ministral) Generate(ctx context.Context, req llm.Request) ([]byte, error) {
-	return m.server.ChatJSON(ctx, []llamaserver.Message{
+func (m *Ministral) Generate(ctx context.Context, req llm.Request) (llm.Result, error) {
+	limit := maxTokens
+	if req.MaxTokens > 0 {
+		limit = req.MaxTokens
+	}
+	c, err := m.server.ChatJSON(ctx, []llamaserver.Message{
 		{Role: "system", Content: req.System},
 		{Role: "user", Content: req.User},
-	}, req.Schema, llamaserver.Options{Temperature: temperature, MaxTokens: maxTokens})
+	}, req.Schema, llamaserver.Options{Temperature: temperature, MaxTokens: limit, LogProbs: req.Confidence})
+	if err != nil {
+		return llm.Result{}, err
+	}
+	res := llm.Result{JSON: c.Content}
+	for _, t := range c.Tokens {
+		res.Tokens = append(res.Tokens, llm.Token{Text: t.Text, Logprob: t.Logprob})
+	}
+	return res, nil
 }

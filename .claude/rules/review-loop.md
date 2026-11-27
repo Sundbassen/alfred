@@ -1,16 +1,16 @@
 # Review loop: every implementation gets an independent review
 
-After implementing a change, and before opening or updating its PR, have it reviewed by a **new review agent**, in up to three review rounds, each by a fresh agent (round 1 is the first review). Major findings stop that PR and go to the user. This applies to every change, docs and rules included, and to each PR of a stack.
+After implementing a change, and before opening or updating its PR, have it reviewed by a **fresh review agent**, for up to three rounds. Major findings stop that PR and go to the user. This applies to every change, docs and rules included, and to each PR of a stack.
 
 ## The loop
 
-1. **Implement** the change and run the checks in `backend/`: `make vet test layers build`, plus `make sqlc-diff` and `make proto-diff` when generated code changes. **Commit** the change, and later each round's fixes, before spawning the reviewer, so the diff it reads is complete.
+1. **Implement** the change and run the checks in `backend/`: `make vet test layers build`, plus `make sqlc-diff` when migrations or queries change (and `make proto-diff` when `.proto` files change). **Commit** the change, and later each round's fixes, before spawning the reviewer, so the diff it reads is complete.
 2. **Review:** spawn a fresh agent, not a fork, so it reads the code without the implementation's assumptions. Give it the diff (`git diff <base>...HEAD`), the goal of the change, what earlier rounds found and fixed, and the review brief below.
 3. **Act on the findings:**
    - **Only minor findings** (see below): fix them, rerun the checks, commit, and spawn a new review of the updated diff, up to **3 review rounds in total**.
-   - **Any major finding:** **stop** that PR. Don't fix the major finding, and don't open or update the PR. Present all findings from the round, minor ones included, to the user with the reviewer's reasoning and your view, so you can plan what to do together. Other PRs in a stack can carry on where they don't depend on the decision.
+   - **Any major finding:** **stop** that PR. Don't fix the major finding, and don't open or update the PR (pushing its branch so later PRs can stack on it is fine while it has no open PR). Present all findings from the round, minor ones included, to the user with the reviewer's reasoning and your view, so you can plan what to do together. Other PRs in a stack can carry on where they don't depend on the decision.
    - **No findings:** done; open or update the PR.
-4. **After round 3:** fix the minor findings that are clear-cut without a fourth review, open or update the PR, and tell the user (and note in the PR) what was fixed unreviewed and what is left.
+4. **After round 3, if it found only minor findings:** fix the clear-cut ones without a fourth review, open or update the PR, and tell the user (and note in the PR) what was fixed unreviewed and what is left.
 5. **In the PR description,** add a short "Review" note: how many rounds, what was fixed, and what was decided with the user.
 
 ## Minor vs. major
@@ -28,7 +28,7 @@ When unsure, treat a finding as **major**.
 
 ## Review brief (give this to the review agent)
 
-> Review this diff for: **[goal of the change]**. Read the changed files in full, plus enough of the surrounding code to judge them. Check:
+> Review this diff for: **[goal of the change]**. Earlier rounds: **[their findings and fixes, or "none"]**. Read the changed files in full, plus enough of the surrounding code to judge them. Check:
 >
 > 1. **Correctness:** bugs, edge cases, error handling, concurrency (races, leaks, goroutines without a clear way to stop), resource cleanup, and behaviour on failure.
 > 2. **The repository's established architecture:** `.claude/rules/project-patterns.md` (layers and the dependency rule, what goes where, interfaces with their consumer, providers vs. `<skill>store`, wiring as the composition root, configuration through `wiring.ConfigFromEnv`) and `.claude/rules/go-errors.md` (tozd errors, categories in `fault`). Compare with how existing code solves the same kind of problem.

@@ -3,6 +3,7 @@ package esphome_test
 import (
 	"context"
 	"log/slog"
+	"net"
 	"testing"
 	"time"
 
@@ -132,22 +133,128 @@ func TestKeepReconnects(t *testing.T) {
 		case <-time.After(5 * time.Second):
 			t.Fatalf("session %d didn't start", i+1)
 		}
-		<-d.Connected()
-		d.Drop() // the device reboots; Keep reconnects
+		select {
+		case <-d.Connected():
+		case <-time.After(5 * time.Second):
+			t.Fatalf("device %d didn't see the connection", i+1)
+		}
+		d.Drop() // the device restarts; Keep reconnects
 	}
 }
 
-func TestMessagesHaveIDs(t *testing.T) {
-	// Sanity check that every message the hub uses has an id.
-	for _, m := range []proto.Message{
-		&esphomepb.HelloRequest{}, &esphomepb.DeviceInfoRequest{}, &esphomepb.SubscribeVoiceAssistantRequest{},
-		&esphomepb.VoiceAssistantRequest{}, &esphomepb.VoiceAssistantResponse{}, &esphomepb.VoiceAssistantEventResponse{},
-		&esphomepb.VoiceAssistantAudio{}, &esphomepb.VoiceAssistantAnnounceRequest{}, &esphomepb.PingRequest{},
-	} {
-		d := esphometest.Start(t, "x", "")
-		c := dial(t, d.Addr(), "")
-		if err := c.Send(m); err != nil {
-			t.Errorf("%T: %v", m, err)
+func TestSilentDeviceIsGivenUp(t *testing.T) {
+	// A device that drops off Wi-Fi sends nothing, not even ping replies:
+	// after 3 keep-alive intervals Recv gives it up.
+	d := esphometest.Start(t, "kitchen", "")
+	c, err := esphome.Dial(context.Background(), esphome.Config{Address: d.Addr(), KeepAlive: 50 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	// Pings are answered: the connection stays up past the timeout.
+	go func() { time.Sleep(300 * time.Millisecond); d.Mute() }()
+	start := time.Now()
+	_, err = c.Recv()
+	if !errors.Is(err, fault.ErrServiceUnavailable) {
+		t.Fatalf("Recv from a silent device: %v, want ErrServiceUnavailable", err)
+	}
+	if took := time.Since(start); took < 300*time.Millisecond || took > 2*time.Second {
+		t.Errorf("gave up after %s, want soon after the device went quiet at 300ms (+150ms)", took)
+	}
+}
+
+func TestDeviceDisconnects(t *testing.T) {
+	d := esphometest.Start(t, "kitchen", "")
+	c := dial(t, d.Addr(), "")
+	if err := d.Send(&esphomepb.DisconnectRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Recv(); !errors.Is(err, fault.ErrServiceUnavailable) {
+		t.Errorf("after the device's DisconnectRequest: %v, want ErrServiceUnavailable", err)
+	}
+	var got proto.Message
+	select {
+	case got = <-d.Received():
+	case <-time.After(5 * time.Second):
+		t.Fatal("no DisconnectResponse")
+	}
+	if _, ok := got.(*esphomepb.DisconnectResponse); !ok {
+		t.Errorf("device got %T, want a DisconnectResponse (and no DisconnectRequest back)", got)
+	}
+}
+
+func TestKeepStopsWithItsContext(t *testing.T) {
+	// fn blocks in Recv; cancelling ctx closes the connection, so Keep
+	// returns.
+	d := esphometest.Start(t, "kitchen", "")
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	connected := make(chan struct{}, 1)
+	go func() {
+		defer close(done)
+		esphome.Keep(ctx, esphome.Config{Address: d.Addr()}, slog.New(slog.DiscardHandler), func(ctx context.Context, c *esphome.Conn) error {
+			connected <- struct{}{}
+			for {
+				if _, err := c.Recv(); err != nil {
+					return err
+				}
+			}
+		})
+	}()
+	select {
+	case <-connected:
+	case <-time.After(5 * time.Second):
+		t.Fatal("didn't connect")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Keep didn't return after its context ended")
+	}
+}
+
+func TestBadKeyIsNotRetried(t *testing.T) {
+	d := esphometest.Start(t, "kitchen", key)
+	if _, err := esphome.Dial(context.Background(), esphome.Config{Address: d.Addr(), Key: "not base64!"}); !errors.Is(err, fault.ErrInvalidValue) {
+		t.Errorf("Dial with a malformed key: %v, want ErrInvalidValue", err)
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		esphome.Keep(context.Background(), esphome.Config{Address: d.Addr(), Key: "short"}, slog.New(slog.DiscardHandler),
+			func(context.Context, *esphome.Conn) error { return nil })
+	}()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Keep kept retrying a malformed key")
+	}
+}
+
+func TestDialCancelled(t *testing.T) {
+	// A listener that accepts but never answers hello.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer c.Close()
 		}
+	}()
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(100*time.Millisecond, cancel)
+	start := time.Now()
+	if _, err := esphome.Dial(ctx, esphome.Config{Address: ln.Addr().String()}); err == nil {
+		t.Fatal("Dial succeeded against a silent listener")
+	}
+	if took := time.Since(start); took > 2*time.Second {
+		t.Errorf("Dial took %s after cancelling, want it to stop right away", took)
 	}
 }

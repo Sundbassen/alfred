@@ -6,6 +6,7 @@ package esphometest
 import (
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"google.golang.org/protobuf/proto"
@@ -24,6 +25,24 @@ type Device struct {
 	received chan proto.Message
 	conns    chan *esphome.Conn
 	current  *esphome.Conn
+	muted    atomic.Bool
+}
+
+// Mute makes the device go quiet without closing anything, as if it
+// dropped off Wi-Fi: what it sends (ping replies included) is lost.
+func (d *Device) Mute() { d.muted.Store(true) }
+
+// mutable drops writes while the device is muted.
+type mutable struct {
+	net.Conn
+	muted *atomic.Bool
+}
+
+func (m mutable) Write(b []byte) (int, error) {
+	if m.muted.Load() {
+		return len(b), nil
+	}
+	return m.Conn.Write(b)
 }
 
 // Start listens on a free local port. The device is closed when the test
@@ -62,7 +81,8 @@ func (d *Device) Send(msg proto.Message) error {
 	return c.Send(msg)
 }
 
-// Drop closes the current connection, as if the device rebooted.
+// Drop closes the current connection politely (a DisconnectRequest), as a
+// device shutting down does.
 func (d *Device) Drop() {
 	d.mu.Lock()
 	c := d.current
@@ -83,7 +103,7 @@ func (d *Device) serve() {
 }
 
 func (d *Device) handle(nc net.Conn) {
-	c, err := esphome.Accept(nc, esphome.AcceptConfig{Key: d.Key, Name: d.Name, MAC: "02:00:00:00:00:01"})
+	c, err := esphome.Accept(mutable{Conn: nc, muted: &d.muted}, esphome.AcceptConfig{Key: d.Key, Name: d.Name, MAC: "02:00:00:00:00:01"})
 	if err != nil {
 		nc.Close()
 		return
@@ -98,12 +118,16 @@ func (d *Device) handle(nc net.Conn) {
 		case *esphomepb.HelloRequest:
 			_ = c.Send(&esphomepb.HelloResponse{ApiVersionMajor: 1, ApiVersionMinor: m.ApiVersionMinor, ServerInfo: "fake", Name: d.Name})
 		case *esphomepb.DeviceInfoRequest:
-			_ = c.Send(&esphomepb.DeviceInfoResponse{Name: d.Name, FriendlyName: d.Name, MacAddress: "02:00:00:00:00:01",
-				EsphomeVersion: "fake", VoiceAssistantFeatureFlags: 0b111})
+			// Current before replying: the client may Send right after Dial.
 			d.mu.Lock()
 			d.current = c
 			d.mu.Unlock()
-			d.conns <- c
+			_ = c.Send(&esphomepb.DeviceInfoResponse{Name: d.Name, FriendlyName: d.Name, MacAddress: "02:00:00:00:00:01",
+				EsphomeVersion: "fake", VoiceAssistantFeatureFlags: 0b111})
+			select {
+			case d.conns <- c:
+			default: // nobody is watching Connected; don't stall the device
+			}
 		default:
 			d.received <- msg
 		}

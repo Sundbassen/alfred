@@ -98,7 +98,11 @@ func (e encrypted) read(r *bufio.Reader) (uint32, []byte, error) {
 	if len(plain) < 4 {
 		return 0, nil, errors.WithMessagef(fault.ErrDecoding, "decrypted frame of %d bytes", len(plain))
 	}
-	return uint32(binary.BigEndian.Uint16(plain[0:2])), plain[4:], nil
+	n := int(binary.BigEndian.Uint16(plain[2:4]))
+	if n > len(plain)-4 {
+		return 0, nil, errors.WithMessagef(fault.ErrDecoding, "payload of %d bytes in a frame of %d", n, len(plain)-4)
+	}
+	return uint32(binary.BigEndian.Uint16(plain[0:2])), plain[4 : 4+n], nil
 }
 
 // writeNoiseFrame writes 0x01, the 16-bit length and data.
@@ -201,7 +205,7 @@ func clientHandshake(w io.Writer, r *bufio.Reader, psk []byte) (codec, string, s
 		if string(reply[1:]) == "Handshake MAC failure" {
 			return nil, name, mac, errors.WithMessage(fault.ErrUnauthorized, "wrong encryption key")
 		}
-		return nil, name, mac, errors.WithMessagef(fault.ErrUnauthorized, "handshake failed: %s", reply[1:])
+		return nil, name, mac, errors.WithMessagef(fault.ErrDecoding, "handshake failed: %s", reply[1:])
 	}
 	_, enc, dec, err := hs.ReadMessage(nil, reply[1:])
 	if err != nil {

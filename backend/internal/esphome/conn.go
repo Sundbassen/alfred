@@ -33,6 +33,14 @@ const (
 	apiMinor = 14
 )
 
+const (
+	// writeTimeout bounds one write: a device that stops reading must not
+	// block senders (and Close) forever.
+	writeTimeout = 10 * time.Second
+	// closeTimeout bounds the polite disconnect in Close.
+	closeTimeout = time.Second
+)
+
 // Config says how to reach one device.
 type Config struct {
 	// Address is host:port, port usually 6053.
@@ -42,7 +50,9 @@ type Config struct {
 	Key string
 	// ClientInfo identifies the client to the device, e.g. "Alfred hub".
 	ClientInfo string
-	// KeepAlive is how often to ping the device (default 20 s).
+	// KeepAlive is how often to ping the device (default 20 s). A device
+	// that sends nothing for 3 × KeepAlive (not even a ping reply) counts
+	// as gone: Recv fails and Keep reconnects.
 	KeepAlive time.Duration
 	// DialTimeout bounds connecting and the handshake (default 10 s).
 	DialTimeout time.Duration
@@ -61,6 +71,10 @@ type Conn struct {
 	Name string
 	Info *esphomepb.DeviceInfoResponse
 
+	// silentFor is how long Recv waits for any frame before it gives the
+	// device up; 0 (during setup, and on the device side) waits forever.
+	silentFor time.Duration
+
 	stop chan struct{}
 	once sync.Once
 }
@@ -68,7 +82,8 @@ type Conn struct {
 // Dial connects to a device, runs the handshake (Noise if Config.Key is
 // set), and exchanges hello and device info. Failure categories:
 // fault.ErrServiceUnavailable (unreachable), fault.ErrUnauthorized (wrong
-// or missing key), fault.ErrDecoding (protocol errors).
+// or missing key), fault.ErrInvalidValue (a malformed key), fault.ErrDecoding
+// (protocol errors).
 func Dial(ctx context.Context, cfg Config) (*Conn, error) {
 	if cfg.DialTimeout == 0 {
 		cfg.DialTimeout = 10 * time.Second
@@ -78,6 +93,10 @@ func Dial(ctx context.Context, cfg Config) (*Conn, error) {
 	}
 	if cfg.ClientInfo == "" {
 		cfg.ClientInfo = "Alfred"
+	}
+	psk, err := decodeKey(cfg.Key)
+	if err != nil {
+		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, cfg.DialTimeout)
 	defer cancel()
@@ -89,25 +108,40 @@ func Dial(ctx context.Context, cfg Config) (*Conn, error) {
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = nc.SetDeadline(deadline)
 	}
+	// Cancelling ctx during the handshake ends it at once.
+	stopCancel := context.AfterFunc(ctx, func() { _ = nc.SetDeadline(time.Unix(1, 0)) })
 	c := &Conn{net: nc, r: bufio.NewReader(nc), codec: plaintext{}, stop: make(chan struct{})}
-	if err := c.setup(cfg); err != nil {
+	err = c.setup(cfg, psk)
+	if !stopCancel() && err == nil {
+		err = errors.Prefix(errors.WithStack(ctx.Err()), fault.ErrServiceUnavailable)
+	}
+	if err != nil {
 		nc.Close()
 		return nil, errors.WithMessage(err, cfg.Address)
 	}
 	_ = nc.SetDeadline(time.Time{})
+	c.silentFor = 3 * cfg.KeepAlive
 	go c.keepAlive(cfg.KeepAlive)
 	return c, nil
 }
 
-func (c *Conn) setup(cfg Config) error {
-	if cfg.Key != "" {
-		psk, err := base64.StdEncoding.DecodeString(cfg.Key)
-		if err != nil || len(psk) != 32 {
-			return errors.WithMessage(fault.ErrInvalidValue, "the encryption key must be 32 bytes, base64")
-		}
+// decodeKey decodes an API encryption key; nil for "" (plaintext).
+func decodeKey(key string) ([]byte, error) {
+	if key == "" {
+		return nil, nil
+	}
+	psk, err := base64.StdEncoding.DecodeString(key)
+	if err != nil || len(psk) != 32 {
+		return nil, errors.WithMessage(fault.ErrInvalidValue, "the encryption key must be 32 bytes, base64")
+	}
+	return psk, nil
+}
+
+func (c *Conn) setup(cfg Config, psk []byte) error {
+	if psk != nil {
 		codec, name, _, err := clientHandshake(c.net, c.r, psk)
 		if err != nil {
-			return err
+			return ioError(err, "handshake")
 		}
 		c.codec, c.Name = codec, name
 	}
@@ -153,6 +187,10 @@ func expect[T proto.Message](c *Conn) (T, error) {
 
 // Send writes one message.
 func (c *Conn) Send(msg proto.Message) error {
+	return c.send(msg, writeTimeout)
+}
+
+func (c *Conn) send(msg proto.Message, timeout time.Duration) error {
 	id, ok := idOf(msg)
 	if !ok {
 		return errors.WithMessagef(fault.ErrInvalidValue, "%T has no ESPHome message id", msg)
@@ -163,20 +201,30 @@ func (c *Conn) Send(msg proto.Message) error {
 	}
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
+	_ = c.net.SetWriteDeadline(time.Now().Add(timeout))
 	if err := c.codec.write(c.net, id, data); err != nil {
-		return errors.Prefix(errors.WithMessagef(err, "send %T", msg), fault.ErrServiceUnavailable)
+		return ioError(err, "send "+string(msg.ProtoReflect().Descriptor().Name()))
 	}
 	return nil
 }
 
 // Recv returns the next message. It answers pings itself (and swallows ping
-// responses), and returns io.EOF-like errors when the device disconnects.
-// Messages of types this client doesn't know are skipped.
+// responses), and fails with fault.ErrServiceUnavailable when the device
+// disconnects or stays silent for 3 × KeepAlive. Messages of types this
+// client doesn't know are skipped.
 func (c *Conn) Recv() (proto.Message, error) {
 	for {
+		if c.silentFor > 0 {
+			// Any frame counts as a sign of life, including ping replies.
+			_ = c.net.SetReadDeadline(time.Now().Add(c.silentFor))
+		}
 		typ, payload, err := c.codec.read(c.r)
 		if err != nil {
-			return nil, errors.Prefix(errors.WithMessage(err, "receive"), fault.ErrServiceUnavailable)
+			var ne net.Error
+			if errors.As(err, &ne) && ne.Timeout() && c.silentFor > 0 {
+				return nil, errors.WithMessagef(fault.ErrServiceUnavailable, "the device sent nothing for %s", c.silentFor)
+			}
+			return nil, ioError(err, "receive")
 		}
 		mt, ok := typeOf(typ)
 		if !ok {
@@ -195,20 +243,38 @@ func (c *Conn) Recv() (proto.Message, error) {
 		case *esphomepb.PingResponse:
 			continue
 		case *esphomepb.DisconnectRequest:
-			_ = c.Send(&esphomepb.DisconnectResponse{})
-			c.Close()
+			// The device is leaving: confirm and close, without asking it
+			// to disconnect in turn.
+			_ = c.send(&esphomepb.DisconnectResponse{}, closeTimeout)
+			c.once.Do(func() {
+				close(c.stop)
+				_ = c.net.Close()
+			})
 			return nil, errors.WithMessage(fault.ErrServiceUnavailable, "the device disconnected")
 		}
 		return msg, nil
 	}
 }
 
-// Close ends the connection (politely, if it is still up).
+// ioError wraps a read or write error. Errors that already have a fault
+// category (a protocol error, a missing key) keep just that one; others are
+// I/O failures, fault.ErrServiceUnavailable.
+func ioError(err error, what string) error {
+	for _, category := range []error{fault.ErrDecoding, fault.ErrUnauthorized, fault.ErrInvalidValue, fault.ErrServiceUnavailable} {
+		if errors.Is(err, category) {
+			return errors.WithMessage(err, what)
+		}
+	}
+	return errors.Prefix(errors.WithMessage(err, what), fault.ErrServiceUnavailable)
+}
+
+// Close ends the connection, politely if it is still up: it asks the device
+// to disconnect, waiting at most a second for the write.
 func (c *Conn) Close() error {
 	var err error
 	c.once.Do(func() {
 		close(c.stop)
-		_ = c.Send(&esphomepb.DisconnectRequest{})
+		_ = c.send(&esphomepb.DisconnectRequest{}, closeTimeout)
 		err = c.net.Close()
 	})
 	return errors.WithStack(err)
@@ -232,15 +298,24 @@ func (c *Conn) keepAlive(every time.Duration) {
 
 // Keep connects to a device and runs fn with each connection, reconnecting
 // with backoff (1 s, doubling to 30 s) when the device is unreachable or
-// fn returns, until ctx ends. fn should return when the connection fails.
+// fn returns, until ctx ends. When ctx ends, Keep closes the connection, so
+// an fn blocked in Recv returns. fn should return when the connection
+// fails. A configuration error (a malformed key) isn't retried: Keep logs
+// it and returns.
 func Keep(ctx context.Context, cfg Config, logger *slog.Logger, fn func(ctx context.Context, c *Conn) error) {
 	backoff := time.Second
 	for ctx.Err() == nil {
 		c, err := Dial(ctx, cfg)
+		if errors.Is(err, fault.ErrInvalidValue) {
+			logger.Error("Satellite left out: its configuration is wrong", slog.String("address", cfg.Address), slog.String("error", err.Error()))
+			return
+		}
 		if err == nil {
 			logger.Info("Connected to satellite", slog.String("address", cfg.Address), slog.String("name", c.Name))
 			backoff = time.Second
+			stop := context.AfterFunc(ctx, func() { c.Close() })
 			err = fn(ctx, c)
+			stop()
 			c.Close()
 		}
 		if ctx.Err() != nil {
@@ -264,10 +339,17 @@ func errString(err error) string {
 	return err.Error()
 }
 
-// Message ids come from the api.proto `id` option of each message.
-var (
-	registry = sync.OnceValues(buildRegistry)
-)
+// registry maps message ids, from the api.proto `id` option of each
+// message, to message types and back. api.proto has no package, so its
+// messages register globally under bare names (HelloRequest); another
+// unpackaged proto with the same names in the binary would clash.
+var registry = sync.OnceValue(func() *messageRegistry {
+	reg, err := buildRegistry()
+	if err != nil {
+		panic("esphome: " + err.Error()) // the generated code is broken: a programming error
+	}
+	return reg
+})
 
 type messageRegistry struct {
 	byID   map[uint32]protoreflect.MessageType
@@ -294,19 +376,11 @@ func buildRegistry() (*messageRegistry, error) {
 }
 
 func idOf(msg proto.Message) (uint32, bool) {
-	reg, err := registry()
-	if err != nil {
-		return 0, false
-	}
-	id, ok := reg.byName[msg.ProtoReflect().Descriptor().FullName()]
+	id, ok := registry().byName[msg.ProtoReflect().Descriptor().FullName()]
 	return id, ok
 }
 
 func typeOf(id uint32) (protoreflect.MessageType, bool) {
-	reg, err := registry()
-	if err != nil {
-		return nil, false
-	}
-	mt, ok := reg.byID[id]
+	mt, ok := registry().byID[id]
 	return mt, ok
 }

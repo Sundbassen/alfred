@@ -1,0 +1,12 @@
+# buf generates Go from the vendored .proto files (make proto); CI runs make
+# proto-diff. protoc-gen-go is pinned in tools.mod and run through go tool.
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package
+      value: github.com/sundbassen/alfred/internal/esphome/esphomepb
+plugins:
+  - local: ["go", "tool", "-modfile=tools.mod", "protoc-gen-go"]
+    out: .
+    opt: module=github.com/sundbassen/alfred

@@ -1,4 +1,4 @@
-.PHONY: build all install clean prereqs run review replay wakestats test vet layers spotify-login sqlc sqlc-diff
+.PHONY: build all install clean prereqs run review replay wakestats test vet layers spotify-login sqlc sqlc-diff proto proto-diff
 
 # Native dependencies live in a project-local, gitignored directory (not
 # /tmp, which is wiped on reboot). Override with make install DEPS_DIR=...
@@ -167,6 +167,20 @@ sqlc:
 
 sqlc-diff:
 	$(SQLC) diff
+
+# Generate Go from the vendored ESPHome API definition (proto/esphome, from
+# aioesphomeapi) into internal/esphome/esphomepb; see buf.gen.yaml. buf and
+# protoc-gen-go are pinned tools in tools.mod. proto-diff regenerates and
+# fails if that changed anything (CI, on a clean checkout).
+BUF = go tool -modfile=tools.mod buf
+proto:
+	$(BUF) generate
+
+proto-diff: proto
+	@git diff --exit-code --stat -- internal/esphome/esphomepb || \
+		(echo "internal/esphome/esphomepb is out of date: run make proto and commit"; exit 1)
+	@test -z "$$(git ls-files --others --exclude-standard -- internal/esphome/esphomepb)" || \
+		(echo "make proto created files that aren't committed"; exit 1)
 
 # Enforce the layer rule (.claude/rules/project-patterns.md): cmd may import
 # anything, skills/ may import internal/, internal/ may import only

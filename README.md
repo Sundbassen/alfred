@@ -211,6 +211,9 @@ Alfred downloads or builds these; none are included in the repository.
 | [openWakeWord](https://github.com/dscripka/openWakeWord) | wake word feature models and training pipeline | code: Apache-2.0. Pre-trained models: **CC BY-NC-SA 4.0 (non-commercial)**. Its README doesn't say whether this covers the `melspectrogram.onnx` / `embedding_model.onnx` feature models Alfred downloads, so treat them as non-commercial. |
 | [SQLite](https://sqlite.org) via [modernc.org/sqlite](https://gitlab.com/cznic/sqlite) | the local database (timers) | SQLite: public domain; modernc.org/sqlite: BSD-3-Clause |
 | [sqlc](https://github.com/sqlc-dev/sqlc) | generates the database query code (development only) | MIT |
+| ESPHome API definition (`api.proto`) from [aioesphomeapi](https://github.com/esphome/aioesphomeapi) | the protocol between hub and satellites (vendored in `backend/proto/esphome`) | MIT |
+| [flynn/noise](https://github.com/flynn/noise) | Noise encryption for ESPHome connections | BSD-3-Clause |
+| [buf](https://github.com/bufbuild/buf), [protoc-gen-go](https://github.com/protocolbuffers/protobuf-go) | generate Go from the `.proto` files (development only) | Apache-2.0, BSD-3-Clause |
 | [Open-Meteo](https://open-meteo.com) | weather forecasts (API, nothing downloaded) | data: CC BY 4.0 ("Weather data by Open-Meteo.com") |
 | [Silero VAD](https://github.com/snakers4/silero-vad) | optional silence detector | MIT |
 | [miniaudio](https://miniaud.io/) via [malgo](https://github.com/gen2brain/malgo) | microphone | miniaudio: public domain / MIT-0; malgo: Unlicense |

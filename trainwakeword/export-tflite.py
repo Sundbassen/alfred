@@ -15,6 +15,7 @@ last_layer → sigmoid.
 """
 
 import argparse
+import os
 import re
 import sys
 
@@ -73,8 +74,6 @@ def main():
     converter = tf.lite.TFLiteConverter.from_concrete_functions(
         [module.__call__.get_concrete_function()], module)
     tflite = converter.convert()
-    with open(args.tflite_model, "wb") as f:
-        f.write(tflite)
 
     # Both models must agree, on random features and on all-zero input.
     onnx_session = ort.InferenceSession(args.onnx_model)
@@ -90,10 +89,16 @@ def main():
         interpreter.invoke()
         got = interpreter.get_tensor(out["index"])
         worst = max(worst, float(np.max(np.abs(want - got))))
+    if worst > 1e-4:
+        sys.exit(f"TFLite and ONNX scores differ too much ({worst:.2e}); nothing written")
+    # Written only once it agrees, so a failed check leaves no file behind
+    # for make to take as up to date.
+    tmp = args.tflite_model + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(tflite)
+    os.replace(tmp, args.tflite_model)
     print(f"wrote {args.tflite_model} ({len(tflite)} bytes); input {shape}; "
           f"largest score difference vs ONNX over 200 inputs: {worst:.2e}")
-    if worst > 1e-4:
-        sys.exit("TFLite and ONNX scores differ too much")
 
 
 if __name__ == "__main__":

@@ -7,14 +7,19 @@ code serves both kinds below. See [#54](https://github.com/Sundbassen/alfred/iss
 
 | Satellite | What it runs | Wake word |
 |---|---|---|
-| **Laptop / Raspberry Pi** (`make laptop`) | The Open Home Foundation's [linux-voice-assistant](https://github.com/OHF-Voice/linux-voice-assistant) (Apache-2.0), pinned to v1.1.18 | Alfred's openWakeWord model, exported to TFLite |
+| **Laptop / Raspberry Pi** (`make laptop`) | The Open Home Foundation's [linux-voice-assistant](https://github.com/OHF-Voice/linux-voice-assistant) (Apache-2.0), pinned to v1.1.18 (by commit) | Alfred's openWakeWord model, exported to TFLite |
 | **ESP32 speaker**, e.g. the Home Assistant Voice Preview Edition (coming) | ESPHome firmware with Alfred's configuration | a microWakeWord "hey alfred" (coming) |
 
 ## Laptop satellite
 
-Needs Python 3.11+, `mpv` (libmpv) and PipeWire/PulseAudio. The wake word
-export uses the training environment (`trainwakeword/pythonvenv`) and the
-trained model in `backend/models/alfred/`.
+Needs Python 3.11+, `mpv` (libmpv), ALSA (libasound) and PipeWire/PulseAudio.
+The wake word export uses the training environment (`trainwakeword/pythonvenv`)
+and the trained model in `backend/models/alfred/`.
+
+**On a Raspberry Pi:** the training environment (TensorFlow, torch) doesn't
+install there. Run `make laptop-model` on the laptop, copy
+`satellite/.deps/openwakeword/` to the Pi, and run
+`make laptop WAKE_DIR=<that folder>` there.
 
 ```sh
 cd satellite

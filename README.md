@@ -173,6 +173,10 @@ Alfred logs in **once** with your own Spotify app (OAuth Authorization Code with
 
 Without `ALFRED_SPOTIFY_CLIENT_ID`, or without a login, Alfred runs without the music skill and logs why. Spotify removed its recommendations API for new apps, so a "radio" is a mix of the named artists, not a discovery station.
 
+## Satellites
+
+Alfred is splitting into satellites in each room and a hub ([#54](https://github.com/Sundbassen/alfred/issues/54)). A laptop can already act as a satellite: see [satellite/README.md](satellite/README.md).
+
 ## Project layout
 
 `backend/` has three layers: `cmd/` may import anything, `skills/` may import `internal/`, and `internal/` may import only `internal/` (`make layers` checks this). The full description is in [`.claude/rules/project-patterns.md`](.claude/rules/project-patterns.md).
